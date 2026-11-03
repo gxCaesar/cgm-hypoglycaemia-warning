@@ -30,6 +30,14 @@ applicable licence terms. The external cohort has its own
 access conditions. Keep development and external inputs in separate paths. Never use
 external labels for model, checkpoint, threshold or analysis selection.
 
+Author-derived aggregate numerical results supporting the manuscript's main and
+supplementary figures and tables are openly available on
+[Zenodo, version 1.0.0](https://doi.org/10.5281/zenodo.23922484). These summaries use
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the underlying clinical
+data retain their original access conditions and licence terms. The dataset
+excludes participant-level records, temporal traces and fitted weights, and does
+not provide complete raw-data reproduction.
+
 The `code/configs/*.template.yaml` files preserve scientific parameters, including
 source membership, participant split seed and fractions, context lengths, labels,
 training settings and evaluation settings. The split implementation is in
