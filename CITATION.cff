@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "Please cite the software, associated paper and original datasets."
+type: software
+title: "CGM hypoglycaemia warning: scientific implementation and evaluation"
+authors:
+  - family-names: Chen
+    given-names: Guanxing
+    email: guanxing.chen@cityu-dg.edu.cn
+    orcid: "https://orcid.org/0000-0002-4435-0884"
+    affiliation: "City University of Hong Kong (Dongguan), Dongguan, China"
+license: MIT
+version: 0.2.0
+repository-code: "https://github.com/gxCaesar/cgm-hypoglycaemia-warning"

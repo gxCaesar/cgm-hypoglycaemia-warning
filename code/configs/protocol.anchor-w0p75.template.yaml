@@ -1,0 +1,124 @@
+# Scientific template: licensed-input identity bindings are unset.
+# Real-data validation must fail until valid local bindings are supplied.
+# Training, split, label, model and evaluation parameters are preserved.
+project:
+  name: glycoshift
+  status: predata
+  synthetic: false
+data:
+  input_path: ../../data/processed/metabonet_development
+  source_manifest: ../../data/manifests/metabonet_development_manifest.local.yaml
+  source_map: ../../data/mappings/source_map.local.yaml
+  development_sources:
+  - CTR3
+  - DCLP3
+  - DCLP5
+  - Flair
+  - IOBP2
+  - PEDAP
+  - ReplaceBG
+  - AZT1D
+  - BrisT1D
+  - Shanghai T1DM
+  - T1D-UOM
+  external_source: Loop Observational Study
+  stress_sources:
+  - HUPA-UCM
+  evaluation_inputs:
+    external_loop:
+      input_path: ../../data/processed/metabonet_external_loop
+      source_manifest: ../../data/manifests/metabonet_external_loop_manifest.local.yaml
+      expected_source: Loop Observational Study
+      required_origin: metabonet-public
+    stress_hupa_ucm:
+      input_path: ../../data/processed/hupa_direct
+      source_manifest: ../../data/manifests/hupa_direct_manifest.local.yaml
+      expected_source: HUPA-UCM
+      required_origin: mendeley-direct
+  confirmatory_source: OhioT1DM
+  forbidden_development_sources:
+  - Loop Observational Study
+  - HUPA-UCM
+  - OhioT1DM
+  minimum_days: 7
+  minimum_day_coverage: 0.7
+  maximum_context_gap_minutes: 20
+  interpolation_limit_minutes: 15
+  glucose_range:
+    minimum_mg_dl: 20
+    maximum_mg_dl: 600
+    policy: exclude_noninterpolable
+    lower_censor_proxy_mg_dl: 39
+    allowed_sources:
+    - T1D-UOM
+    maximum_rows: 7
+    approved_values_mg_dl:
+    - 1.8018
+    approved_release_id: v1.1
+    approved_release_sha256: null
+  training_window_shards: ../../experiments/protocol-run/window_shards
+  training_cohort_audit: ../../experiments/protocol-run/cohort_audit.json
+protocol:
+  sample_minutes: 5
+  context_hours: 6
+  sensitivity_context_hours:
+  - 2
+  - 12
+  horizons_minutes:
+  - 30
+  - 60
+  minimum_consecutive_samples: 3
+  merge_event_gap_minutes: 30
+  thresholds_mg_dl:
+    hypoglycemia: 70
+    severe_hypoglycemia: 54
+    hyperglycemia: 180
+split:
+  train_fraction: 0.7
+  selection_fraction: 0.15
+  calibration_fraction: 0.15
+  seed: 42
+model:
+  baseline: logistic_regression
+  variant: base
+  class_weight: balanced
+  maximum_iterations: 500
+  memory_k: 8
+  memory_stride_minutes: 30
+  dropout: 0.1
+training:
+  seed: 17
+  negative_ratio: 20
+  batch_size: 256
+  effective_batch_size: 1024
+  maximum_epochs: 30
+  warmup_memory_epochs: 3
+  early_stopping_patience: 4
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  auxiliary_regression_weight: 0.1
+  group_dro_eta: 0.0
+  event_objective: severe_retarget
+  anchor_weight: 0.75
+  feature_group_dropout_max: 0.5
+  gradient_clip_norm: 1.0
+  num_workers: 8
+  final_seeds:
+  - 17
+  data_sampling_seed: 42
+evaluation:
+  false_alarms_per_patient_day:
+  - 0.5
+  - 1.0
+  ece_bins: 10
+  bootstrap_replicates: 1000
+  bootstrap_seed: 20260810
+  threshold_candidate_count: 2001
+  event_ap_candidate_count: 201
+  event_prevalence_minimum: 0.0001
+  event_prevalence_maximum: 0.3
+  external_minimum_participants: 30
+  external_minimum_events_per_class: 100
+  alarm_sweep_workers: 16
+output:
+  run_dir: ../../experiments/anchor-w0p75-run

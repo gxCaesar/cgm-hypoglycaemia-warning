@@ -1,0 +1,2 @@
+# Plotting dependency; the original experiment records do not establish an exact pin.
+matplotlib>=3.8,<4

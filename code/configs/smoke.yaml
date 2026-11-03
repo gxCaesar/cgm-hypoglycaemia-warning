@@ -1,0 +1,92 @@
+project:
+  name: glycoshift-smoke
+  status: architecture_smoke
+  synthetic: true
+
+data:
+  input_path: null
+  source_manifest: null
+  synthetic_sources:
+    - dev_alpha
+    - dev_beta
+    - Loop Observational Study
+    - HUPA-UCM
+  participants_per_source: 8
+  days_per_participant: 2
+  development_sources:
+    - dev_alpha
+    - dev_beta
+  external_source: Loop Observational Study
+  stress_sources:
+    - HUPA-UCM
+  confirmatory_source: null
+  forbidden_development_sources:
+    - Loop Observational Study
+    - HUPA-UCM
+    - OhioT1DM
+  minimum_days: 1
+  minimum_day_coverage: 0.70
+  maximum_context_gap_minutes: 20
+  interpolation_limit_minutes: 15
+
+protocol:
+  sample_minutes: 5
+  context_hours: 1
+  sensitivity_context_hours: []
+  horizons_minutes:
+    - 30
+    - 60
+  minimum_consecutive_samples: 3
+  merge_event_gap_minutes: 30
+  thresholds_mg_dl:
+    hypoglycemia: 70
+    severe_hypoglycemia: 54
+    hyperglycemia: 180
+
+split:
+  train_fraction: 0.70
+  selection_fraction: 0.15
+  calibration_fraction: 0.15
+  seed: 42
+
+model:
+  baseline: logistic_regression
+  variant: tiny
+  class_weight: balanced
+  maximum_iterations: 300
+  memory_k: 4
+  memory_stride_minutes: 30
+  dropout: 0.1
+
+training:
+  seed: 42
+  negative_ratio: 20
+  batch_size: 16
+  effective_batch_size: 32
+  maximum_epochs: 2
+  warmup_memory_epochs: 1
+  early_stopping_patience: 2
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  auxiliary_regression_weight: 0.1
+  group_dro_eta: 0.01
+  feature_group_dropout_max: 0.5
+  gradient_clip_norm: 1.0
+  num_workers: 0
+  final_seeds:
+    - 42
+
+evaluation:
+  false_alarms_per_patient_day:
+    - 0.5
+    - 1.0
+  ece_bins: 10
+  bootstrap_replicates: 20
+  bootstrap_seed: 20260724
+  threshold_candidate_count: 21
+  event_ap_candidate_count: 11
+  event_prevalence_minimum: 0.0001
+  event_prevalence_maximum: 0.30
+
+output:
+  run_dir: ../../experiments/smoke

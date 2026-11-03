@@ -1,0 +1,55 @@
+{
+  "base_reference": {
+    "checkpoint_state_hash": "sorted-tensor-state-sha256-v1",
+    "fold_count": 5,
+    "loss_denominator": "sampling_weight_sum_v1_2",
+    "reference_reuse": "exact_selected_cf5_checkpoint_state",
+    "source_order": [
+      "AZT1D",
+      "BrisT1D",
+      "CTR3",
+      "DCLP3",
+      "DCLP5",
+      "Flair",
+      "IOBP2",
+      "PEDAP",
+      "ReplaceBG",
+      "Shanghai T1DM",
+      "T1D-UOM"
+    ]
+  },
+  "c2_objective": {
+    "base_reference": "detached_weighted_cf5_source_risk",
+    "event_reference": "detached_complete_train_participant_oof_event_components",
+    "false_alarm_target_per_patient_day": 0.5,
+    "horizon_source_aggregation": "equal_weight_horizon_then_equal_weight_source",
+    "mode": "c2_source_event_regret"
+  },
+  "event_scores": {
+    "complete_trajectory": "all_eligible_train_decisions_per_participant",
+    "event_matching": "earliest_unused_event_one_to_one",
+    "horizon_order_minutes": [
+      30,
+      60
+    ],
+    "model_mode": "eval_with_model_gradients_retained",
+    "refractory": "soft_30_minutes",
+    "score_dtype": "float32",
+    "score_transform": "sigmoid_float32",
+    "severe_task_order": [
+      "hypo_30",
+      "hypo_60"
+    ],
+    "zero_event_participants": "exclude_from_sensitivity_include_in_false_alarm_burden"
+  },
+  "method": "weighted-cf5-c2-loss-score-contract-v1.1",
+  "protocol_id": "glycoshift-sota-method-v1.3",
+  "schema_version": "1.1",
+  "scope": {
+    "calibration_rows_loaded": false,
+    "external_rows_loaded": false,
+    "fit_partition": "train",
+    "held_partition": "train",
+    "selection_rows_loaded": false
+  }
+}
