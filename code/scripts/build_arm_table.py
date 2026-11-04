@@ -70,9 +70,9 @@ DISPLAY = {
     # comparator here, and the project name it once carried now denotes the
     # evaluation harness, so the two must not share a token in one document.
     "erm_nomemory_glycoshift": "Memory transformer, no memory",
-    "dro_tau_0p5_lstm": "GroupDRO, $\\tau=0.5$",
-    "dro_tau_1p0_lstm": "GroupDRO, $\\tau=1.0$",
-    "dro_tau_2p0_lstm": "GroupDRO, $\\tau=2.0$",
+    "dro_tau_0p5_lstm": "Softmax-DRO, $\\tau=0.5$",
+    "dro_tau_1p0_lstm": "Softmax-DRO, $\\tau=1.0$",
+    "dro_tau_2p0_lstm": "Softmax-DRO, $\\tau=2.0$",
     "tls_lstm": "Tail-loss shaping",
 }
 
@@ -276,7 +276,7 @@ def _latex(rows: list[dict], control: dict) -> str:
         "marked "
         "$\\dagger$ are untrained rules and are not among the fifteen trained arms. "
         "Their training seed is inapplicable and shown as an en-dash. ERM, empirical "
-        "risk minimisation; LSTM, long short-term memory network; GroupDRO, group "
+        "risk minimisation; LSTM, long short-term memory network; DRO, "
         "distributionally robust optimisation."
         "}",
         "\\label{tab:all_arms}",

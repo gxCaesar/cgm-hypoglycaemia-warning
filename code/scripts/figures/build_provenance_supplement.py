@@ -94,7 +94,6 @@ def main(argv: list[str] | None = None) -> int:
         if not m:
             raise SystemExit(f"{_label}: no timestamp in the environment record")
         stamps.append(_dt.date.fromisoformat(m.group(1)))
-    apart = (max(stamps) - min(stamps)).days
     hosts = set()
     for _label, text, _found in records:
         m = re.search(r"host[=:]\s*(\S+)", text)
@@ -150,10 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         r"\bottomrule",
         r"\end{tabular}}",
         r"\caption{Software environment versions recorded for the reported multiseed "
-        r"runs. The "
-        + f"{len(records)} environment records retained by this study, captured on "
-        + f"{len(hosts)} hosts {apart} days apart, match identically on every shared "
-        + "package" + partial_note + ". " + seed_note +
+        r"runs. Shared package versions agree across the "
+        + f"{len(records)} available environment records"
+        + partial_note + ". " + seed_note +
         r"The earlier campaign that produced the frozen single-seed comparator "
         r"artefacts retained no environment manifest of its own, a distinction noted "
         r"because identical code on identical splits shifted a baseline by between "

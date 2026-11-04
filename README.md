@@ -24,6 +24,12 @@ No real data, participant-level outputs, model weights or trained checkpoints ar
 
 ## Data access and scientific settings
 
+Sequence models use sensor glucose and its observation mask, time-of-day encodings
+and available basal insulin, bolus insulin, carbohydrate and activity records with
+availability/missingness encodings. Normalisation is fitted on training participants;
+action groups are randomly masked during training. The reported study does not
+include a glucose-only ablation or the planned systematic action-masking stress test.
+
 Obtain the consolidated CGM release through the access procedures described by
 [MetaboNet](https://doi.org/10.1177/19322968261441637) and comply with its
 applicable licence terms. The external cohort has its own
@@ -73,9 +79,9 @@ roles and the frozen alarm policy when reproducing a comparison.
 
 `manu/figures/make_fig_*.py` reads aggregate analysis outputs and writes PDF figures.
 `code/scripts/figures/` contains their plotting helpers and table builders. Each
-entry point documents its input arguments with `--help`. The caption inputs under
-`manu/sections/` and `manu/supplement.tex` are included because figure geometry uses
-the caption associated with each plotted result. The study's generated analysis
+entry point documents its input arguments with `--help`. The inputs under
+`manu/sections/` and `manu/supplement.tex` contain only figure environments and
+their captions, which are used to calculate plot geometry. The study's generated analysis
 outputs are not bundled, so reproducing a result figure first requires generating
 the corresponding analysis inputs from licensed data. Figure 1's editable native
 PowerPoint is distributed in the manuscript handoff's editable-figure folder.

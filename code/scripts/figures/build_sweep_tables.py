@@ -179,7 +179,7 @@ def cut_table(cut_dir: Path, eugly_dir: Path, arm_table: Path) -> tuple[str, int
     for cut in CUTS:
         if cut in refused:
             rows.append(f"{cut} & {retained[cut]:.2f}\\% & "
-                        r"\multicolumn{3}{l}{refused by the estimand} \\")
+                        r"\multicolumn{3}{l}{not estimable} \\")
             continue
         values = {}
         for stem, _label in ARMS:
@@ -230,10 +230,9 @@ def cut_table(cut_dir: Path, eugly_dir: Path, arm_table: Path) -> tuple[str, int
         r"rows surviving each restriction, before active-event exclusions. It does not "
         r"describe the eligible selection population alone. \emph{Leader} identifies "
         r"the larger point estimate without implying statistical superiority. The "
-        r"unrestricted row reproduces the frozen primary values. Cut-offs above "
-        r"70~mg/dL "
-        r"are refused rather than reported as zero because the smallest "
-        r"development cohort retains no event-positive selection participant.}",
+        r"unrestricted row reproduces the frozen primary values. At cut-offs above "
+        r"70~mg/dL, the equal-source endpoint is undefined because the smallest "
+        r"development cohort contains no event-positive selection participant.}",
         r"\label{tab:cut_curve}",
         r"\end{table}",
         "",

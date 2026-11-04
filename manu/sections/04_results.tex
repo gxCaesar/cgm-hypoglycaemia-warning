@@ -1,10 +1,5 @@
-\section{Results}
+% Figure-caption inputs for plot geometry.
 
-Figure~\ref{fig:overview} sets out the study design across eleven separately collected cohorts, the participant-level split within each source, and the evaluation pipeline by which a window score becomes a scored event alarm.
-
-\input{sections/fig01_overview}
-
-\subsection{The eleven cohorts differ in what they record and in how much hypoglycaemia they carry}
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_cohort_data.pdf}
@@ -26,67 +21,12 @@ The empty carbohydrate lane indicates no recorded values. Action lanes use recor
 \label{fig:cohort_data}
 \end{figure}
 
-
-Table~\ref{tab:cgm_cohort} summarises the eleven development sources, which contribute 1{,}020 participants and 161{,}563 person-days alongside 109{,}374 hypoglycaemia events, 356{,}431 hyperglycaemia events and 26{,}681 level 2 events. The participant total matches the frozen cohort audit, and Supplementary Table~\ref{S-tab:split} gives the participant split by source and partition. Eight of the 1{,}028 enrolled participants in these sources are excluded before window construction because they have no eligible context window, comprising four in IOBP2, three in Shanghai T1DM and one in PEDAP. Participant percentages below use the 1{,}028 enrolled participants as the denominator unless the analysed cohort is named.
-
-Cohort size spans more than an order of magnitude, from 328 participants in the largest source to 9 in the smallest, with corresponding differences in observation time and event counts (Figure~\ref{fig:cohort_data}k). The equal-source primary estimand, which averages the eleven sources with equal weight rather than pooling participants, addresses this size imbalance, although the smallest strata constrain several analyses below. Insulin-delivery modality, recorded sex composition and age also differ across sources (Figure~\ref{fig:cohort_data}h--j), so equal weighting does not make their clinical populations interchangeable. The sealed external cohort, opened once after protocol freeze, exceeds the entire development set in person-days, contributing 843 participants and 296{,}954 person-days against 1{,}020 and 161{,}563 in development, and carrying 59{,}402 level 2 events against 26{,}681. The pre-registered stress-test source contributes 25 participants. The third declared external source, OhioT1DM, was never obtained, and no claim rests on it.
-
-\begin{table}[!htp]
-\centering
-\caption{Cohort composition and endpoint event counts from frozen analysis artefacts.
-Person-days counts distinct participant--calendar-day pairs represented by eligible windows.
-Hypo, Hyper and Level 2 count distinct onsets represented in the 60-minute labels, defined by three consecutive five-minute readings below 70, above 180 and below 54~mg/dL, respectively. Events separated by less than 30 minutes are merged.
-Development counts cover the complete eligible cohort in frozen window shards. External counts use identical definitions on frozen prediction artefacts over the complete external cohorts, constructed and scored in one pass. External sources were opened after the candidate, threshold policy and analysis code were frozen.}
-\label{tab:cgm_cohort}
-%
-%
-%
-%
-{\small\setlength{\tabcolsep}{3.2pt}
-\begin{tabular}{lrrrrr}
-\toprule
-Source & Participants & Person-days & Hypo & Hyper & Level 2 \\
-\midrule
-CTR3 & 30 & 4{,}543 & 3{,}344 & 9{,}184 & 1{,}008 \\
-DCLP3 & 112 & 19{,}616 & 9{,}785 & 44{,}499 & 1{,}990 \\
-DCLP5 & 100 & 19{,}190 & 12{,}363 & 49{,}804 & 2{,}211 \\
-Flair & 113 & 18{,}577 & 9{,}186 & 39{,}397 & 2{,}497 \\
-IOBP2 & 328 & 28{,}386 & 15{,}698 & 64{,}310 & 3{,}562 \\
-PEDAP & 64 & 17{,}521 & 18{,}070 & 44{,}747 & 3{,}448 \\
-ReplaceBG & 208 & 47{,}928 & 37{,}661 & 91{,}040 & 11{,}419 \\
-AZT1D & 23 & 967 & 438 & 2{,}011 & 79 \\
-BrisT1D & 19 & 3{,}360 & 1{,}838 & 8{,}612 & 287 \\
-Shanghai T1DM & 9 & 134 & 127 & 210 & 62 \\
-T1D-UOM & 14 & 1{,}341 & 864 & 2{,}617 & 118 \\
-\midrule
-All development & 1{,}020 & 161{,}563 & 109{,}374 & 356{,}431 & 26{,}681 \\
-\midrule
-Loop Observational Study & 843 & 296{,}954 & 296{,}207 & 517{,}398 & 59{,}402 \\
-HUPA-UCM & 25 & 1{,}064 & 1{,}151 & 1{,}696 & 266 \\
-OhioT1DM & \multicolumn{5}{c}{declared confirmatory, not obtained} \\
-\bottomrule
-\end{tabular}}
-\end{table}
-
-The cohorts also differ in hypoglycaemia exposure and channel recording. Event-aligned illustrative records show distinct glucose trajectories and different accompanying treatment or wearable channels (Figure~\ref{fig:cohort_data}a--c). At the cohort level, sensor readings below 70~mg/dL account for $1.54\%$ of observations in AZT1D compared with $7.65\%$ in Shanghai T1DM, a fivefold spread in low-glucose exposure (Figure~\ref{fig:cohort_data}d,~e). The hour-of-day profiles further show that the pooled level 2 rate is higher overnight, with substantial differences between sources (Figure~\ref{fig:cohort_data}f). Action and wearable channel
-availability differs even more sharply and varies little within a source, as every
-non-glucose channel is recorded for essentially all participants of a cohort or
-none of them, with the exceptions of carbohydrate in ReplaceBG and T1D-UOM, meal
-label in IOBP2 and T1D-UOM, and workout in PEDAP (Figure~\ref{fig:cohort_data}g and Supplementary Table~\ref{S-tab:coverage}). Heart rate is
-present in one cohort of eleven, steps and energy expenditure in two, meal label in three
-and carbohydrate in six, whereas skin temperature, ambient temperature and electrodermal activity
-appear in none. Because channel completeness cannot be separated from cohort identity in this
-release, the models compared below use the glucose-only input tier. Robustness to missing action logs remains untested.
-
-
-\FloatBarrier
-\subsection{Current glucose leads the unrestricted comparison, with uncertainty across sources}
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_landscape.pdf}
 \caption{Eighteen evaluated arms on the frozen unrestricted selection frame.
 Sensitivity averages event-positive participants within source, then sources equally. The primary endpoint averages the 30- and 60-minute sensitivities.
-\textbf{a}, Primary sensitivities at a nominal 0.5 false alarms per participant-day. Open markers identify nine historical fits selected by the superseded window-AUPRC checkpoint proxy and diagnostically rescored. Filled markers use the current budget-frontier proxy. The control is highlighted and oracle references are dashed.
+\textbf{a}, Primary sensitivities at a nominal 0.5 false alarms per participant-day. Open markers identify nine historical fits selected using window-level area under the precision--recall curve (AUPRC) and diagnostically rescored. Filled markers identify fits selected using the budget-frontier proxy. The GroupDRO temperature sweep uses a softmax objective. The control is highlighted and oracle references are dashed.
 \textbf{b}, Gap between the control and perfect window ranking, partitioned into the portion recoverable by a perfect glucose forecast and the remainder.
 \textbf{c}, Total refractory-surviving alarms at 30 minutes for the control, strongest trained arm and two oracles.
 \textbf{d}, Horizon-specific sensitivities. Six arms rise, ten fall and two constant-score controls remain at zero. Among the five leading arms, only the control rises at 60 minutes.
@@ -99,53 +39,6 @@ Sensitivity averages event-positive participants within source, then sources equ
 \label{fig:landscape}
 \end{figure}
 
-
-On the frozen primary endpoint, defined as mean 30 and 60-minute level 2 event sensitivity at a nominal 0.5 false alarms per participant-day, the highest-scoring arm is the zero-order-hold control at $0.8061$. The two deep comparators from the current campaign reach $0.7442$ and $0.7388$, while classical machine-learning baselines score between $0.6057$ and $0.3756$ (Figure~\ref{fig:landscape}a). Inverting the control's calibration-fitted threshold yields an alarm rule triggered at or below 61~mg/dL on the latest observed sensor glucose value, verified by exact alarm-set equality across all 5{,}952{,}251 eligible selection rows. The negative controls behave as expected under the same evaluator. Label-shuffled logistic regression reduces the primary endpoint to $0.0223$, while the global and per-source constant-score baselines issue zero alarms because no threshold other than never firing satisfies the false-alarm budget. The oracle comparisons nevertheless leave substantial headroom above the control. Most of that gap is recoverable with perfect future-glucose information, and both oracle references attain higher 30-minute sensitivity while using fewer alarms (Figure~\ref{fig:landscape}b,~c,~f).
-
-This comparative ordering holds across historical training campaigns evaluated on the identical decision frame. Retained prediction
-artefacts from earlier campaigns share the same underlying data structure, comprising 11{,}759{,}997 total scored rows, 11{,}710{,}240 eligible rows
-after excluding active events, 5{,}952{,}251 eligible rows in the selection partition, 21{,}497
-positive windows, and the identical 153 selection participants. Across that shared
-frame, the comparison spans fifteen trained fits of fourteen distinct model configurations
-across seven method families, namely classical baselines, LSTM, temporal convolution (TCN), a
-patch-based Transformer, a memory-ablated Transformer, a softmax distributionally robust temperature sweep, and tail-loss shaping. The current-glucose control leads all fifteen trained fits (Supplementary Table~\ref{S-tab:all_arms}), outperforming the strongest current-campaign comparator by $0.062$ and the strongest historical fit
-by $0.170$. The family-level display shows that this ordering extends beyond either neural architecture, while the checkpoint-proxy groups identify which comparisons share the current selection rule (Figure~\ref{fig:landscape}g,~h).
-
-Nine of those fifteen trained fits are diagnostic rescorings of historical runs rather than matched-protocol comparator results, having been trained in earlier campaigns where checkpoints were selected using the superseded macro window-level area under
-the precision--recall curve (AUPRC) proxy rather than the
-operational budget-frontier proxy. While the eligible decision frame and calibration-partition threshold fit are identical across both campaigns, the frozen training epoch differs systematically. In the one historical arm retaining a complete five-epoch trajectory, the operational budget-frontier proxy peaks at the first epoch and
-declines monotonically across subsequent epochs ($1.4958$, $1.3500$, $1.3155$, $1.2226$, $1.1426$), whereas macro window
-AUPRC rises to a maximum at the third epoch. Selecting checkpoints by window AUPRC freezes the model at an
-epoch scoring $1.3155$ on the operational proxy rather than $1.4958$. Because the nine historical fits were frozen at epochs selected for window ranking, their larger deficit below the control provides supplementary context only, and no primary conclusion rests on them. Among the six trained comparators from the current campaign selected under the operational budget-frontier proxy, the current-glucose control leads outright by at least $0.062$. The participant-bootstrap contrasts and the core control-versus-LSTM/TCN contrasts under restricted eligibility use current-campaign comparators. The seven-arm restricted display additionally includes four historical fits as diagnostic rescorings.
-
-Training-seed coverage limits the interpretation of the comparator ladder, because most arms have only one available fit (Figure~\ref{fig:landscape}j). For the source-balanced LSTM, five fits on the same dataset and participant split have a primary-endpoint standard deviation of $0.0505$ (95\% confidence interval $0.0303$ to $0.1452$), with achieved false-alarm burden from $0.507$ to $0.593$ per participant-day (Supplementary Fig.~\ref{S-sfig:seed_variance}a). The seed-specific frontiers and their integrated variability show that dispersion at one operating point differs from dispersion over the attainable curve (Supplementary Fig.~\ref{S-sfig:seed_variance}b,~c,~f). Source-specific sensitivities and their spread also show that aggregate seed variation masks greater instability in small cohorts (Supplementary Fig.~\ref{S-sfig:seed_variance}d,~e). Finally, achieved false-alarm rates, surviving alarm counts and matched events vary across fits, with paired horizon sensitivities retaining broadly similar seed ordering (Supplementary Fig.~\ref{S-sfig:seed_variance}g--j). These summaries quantify optimisation variability on one fixed split, not participant or cohort sampling uncertainty.
-
-Compared against the five-seed mean of the source-balanced LSTM rather than its single registered seed, the control's unrestricted lead is larger. Because the deterministic control has no training seed, comparing it against a multiseed neural arm forms a
-one-sample $t$-test against a constant reference. The balanced LSTM averages $0.6968$ across its five
-fits, giving the control a mean lead of $+0.1093$ ($t=4.84$, 4 d.f.,
-$P=0.025$ after Holm adjustment across the five-budget test family, or $0.0084$ unadjusted). Evaluating the
-same contrast at the pre-registered seed alone gives $+0.0673$ because the registered seed is the second-highest
-of the five fits, understating the five-seed mean difference by
-$0.0421$. This contrast also depends on the alarm budget. The control's mean lead changes across the budget sweep, as does its size relative to the seed standard deviation measured at each budget (Supplementary Fig.~\ref{S-sfig:budget}a--c and Supplementary Table~\ref{S-tab:budget_sweep}). Achieved rates differ from the nominal calibration target across the ladder (Figure~\ref{fig:landscape}e), and the diagnostic sensitivity frontiers show both model crossings and seed-dependent changes in the curve (Supplementary Fig.~\ref{S-sfig:frontier}a--c). A ranking at one frozen operating point therefore does not imply dominance across alarm budgets.
-
-
-The two prediction horizons disagree sharply on the magnitude of the control's lead. At 30 minutes the control
-leads the strongest single-seed deep comparator (TCN) by only $0.0088$ at the registered seed. Because multiseed variability was not measured for the TCN configuration, we do not divide this single-seed difference by the $0.0505$ seed standard deviation of the balanced LSTM. Instead, the source-stratified participant bootstrap at the registered seed provides descriptive uncertainty intervals for each horizon separately. At 30 minutes the control's difference over the TCN has a $95\%$ confidence interval
-of $[-0.0688, +0.0853]$ and $P = 0.83$, indicating no separation between the two arms. The control's unrestricted advantage arises entirely at the 60-minute horizon, where the difference is $0.1151$ with a confidence interval of
-$[+0.0187, +0.2120]$ and $P = 0.010$. The same pattern holds against the balanced LSTM at the registered seed, with descriptive participant-bootstrap intervals of
-$[-0.0652, +0.0982]$ at 30 minutes and $[+0.0263, +0.2080]$ at 60 minutes ($P = 0.006$). The horizon-specific sensitivities and ranks show that this divergence extends across the comparator ladder (Figure~\ref{fig:landscape}d,~i). Sensitivity increases between horizons for six of the eighteen arms and decreases for ten, while the two constant-score controls remain flat by construction. Among the five highest-scoring arms overall, the current-glucose control is the only arm whose sensitivity increases at the longer horizon.
-
-Within that longer horizon, the control's equal-source macro advantage is driven by the smallest development cohorts. Four sources
-containing two or three scored selection participants account for two thirds of the gap, and a single source
-with two scored participants and eleven events contributes $0.65$ of per-source sensitivity difference on
-its own. When the evaluation is restricted to the six sources with five or more scored selection
-participants, the control trails the leading deep arm at 30 minutes and its horizon-averaged lead narrows by half to $0.0312$. Equal-source macro aggregation redistributes this horizon difference relative to participant-pooled counts.
-Pooled across all selection participants without equal-source weighting, the control leads the strongest deep comparator by $0.0362$ at 30 minutes and $0.0898$ at 60 minutes, showing that equal-source weighting shrinks
-the 30-minute gap fourfold while enlarging the 60-minute gap. Thus the unrestricted comparison depends on the horizon, operating point and contribution of small cohorts. The external cohort evaluation reported below tests whether the calibration-rank combination's lead over its deep network member
-persists under cohort shift on the unrestricted frame, and does not evaluate the restricted-eligibility reversal described next.
-
-\FloatBarrier
-\subsection{Restricting decision eligibility reverses the model ordering}
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_eligibility.pdf}
@@ -154,91 +47,26 @@ The primary endpoint averages participant-macro level 2 event sensitivity equall
 \textbf{a}, Primary sensitivity as the minimum current-glucose cut-off increases from 54 to 70~mg/dL. Thresholds are refitted on calibration data within each restriction. Cut-offs at 80~mg/dL and above leave no event-positive selection participant in the smallest source.
 \textbf{b}, Seven arms at 70~mg/dL, including four historical diagnostic fits.
 \textbf{c}, \textbf{d}, Horizon-averaged per-cohort contrasts for control minus TCN on the unrestricted frame and balanced LSTM minus control at 70~mg/dL, respectively. Shading gives the overall 95\% percentile interval from 10{,}000 paired source resamples with within-source participant means fixed. Parentheses give scored selection participants. Open markers identify cohorts with fewer than five. These intervals describe source-composition variation, not participant-level uncertainty.
-\textbf{e}, Within-band Spearman rank agreement on 30-minute selection scores, with the critical alarm band shaded.
+\textbf{e}, Within-band Spearman rank correlations between the 30-minute current-glucose control score and each deep comparator's score, with the critical alarm band shaded.
 \textbf{f}, Event-pooled fraction with a non-active-event decision at glucose $\geq70$~mg/dL in the preceding 30 minutes. This diagnostic pools retained calibration and selection predictions and excludes events without any non-active-event lead-in. It is not the participant-macro primary estimand.
 \textbf{g}, \textbf{h}, Matched events and refractory-surviving alarms at 30 minutes for the 54 and 60~mg/dL cut-offs.
-\textbf{i}, \textbf{j}, Per-cohort 30-minute sensitivities for the control and balanced LSTM at the 54 and 70~mg/dL cut-offs.}
+\textbf{i}, \textbf{j}, Per-cohort 30-minute sensitivities at the 54 and 70~mg/dL cut-offs for the control (\textbf{i}) and balanced LSTM (\textbf{j}).}
 \label{fig:eligibility}
 \end{figure}
 
-
-Under the unrestricted frame, the current-glucose control triggers an alarm only at or below 61~mg/dL, below the 70~mg/dL
-level 1 hypoglycaemia alert threshold established by international consensus. At least 97.64\% of all scored calibration and selection rows lie at or above 70~mg/dL, where this control is silent. Its detections arise below the clinical alert threshold, in a glucose range where a standard CGM device can already issue a low-glucose alert. Whether a
-patient or an automated pump intervenes following such an alert is not observable in these retrospective records and is not assumed here. Restricting both the calibration and selection partitions to decisions taken at or above
-70~mg/dL, while refitting every alarm threshold on the calibration partition inside that restriction, reverses the comparative ordering completely
-(Figure~\ref{fig:eligibility}a,~b). Under the restriction, the control drops to
-$0.1517$ and finishes last among the seven evaluated arms, whereas six trained arms across four method
-families cluster between $0.4061$ and $0.5212$. When matched on total triggered alarm count rather than the
-nominal calibration budget, the leading trained arm outperforms the control by $0.263$, and even when permitted 56\% more alarms than the leading trained arm, the
-control still trails by $0.030$.
-
-Sweeping the minimum current-glucose cut-off upward from 54~mg/dL shows that this reversal occurs across a narrow glucose interval (Supplementary Table~\ref{S-tab:cut_curve}). The control leads at 54 and trails at 60, and those two restrictions differ by only
-54{,}714 rows, representing $0.47\%$ of all 11{,}759{,}997 scored calibration and selection rows before active-event exclusions. These retained-row fractions describe the scoring input, not the eligible selection population. Excluding those rows reduces the
-control's primary endpoint by $0.213$ and flips the ranking, while reducing the trained arm's endpoint by only
-$0.097$. The current-glucose control's entire advantage over trained models resides in a six-milligram-per-decilitre window
-immediately below its own alarm threshold. The matched-event counts fall more sharply for the control than for the LSTM, whereas triggered-alarm totals change less (Figure~\ref{fig:eligibility}g,~h). Cohort-specific trajectories show that the control's sensitivity generally declines more steeply as eligibility is restricted (Figure~\ref{fig:eligibility}i,~j). Two structural features of the cohorts bound this restricted-eligibility analysis. First, roughly one in five level 2 events
-at 30 minutes has no preceding warning window above 70~mg/dL, placing those episodes beyond the reach of any warning system on these cohorts, and that reachable fraction varies across cohorts by more than
-any between-arm difference reported here (Fig.~\ref{fig:eligibility}f). Second, the equal-source macro estimand cannot be evaluated
-at stricter cut-offs of 80~mg/dL and above because the
-smallest cohort retains no event-positive selection participant, causing the equal-source evaluator to halt even though 13{,}210 positive
-windows remain across the study.
-
-Paired bootstrap resampling across the eleven sources shows that the eligibility-rule effect resolves statistically across cohorts whereas the unrestricted model contrast does not. Because the primary endpoint is an equal-source
-macro average, the source is the outer unit of analysis. Resampling
-the eleven per-source values with replacement in pairs across ten thousand replicates places
-the control's unrestricted lead over the strongest trained arm at $+0.0620$ with a $95\%$ confidence interval of $[-0.0839, +0.2212]$, with the trained arm leading in roughly one fifth of resamples. The same paired source resample places the restricted-eligibility reversal at
-$+0.3695$ with a confidence interval of $[+0.2632, +0.4508]$ and zero of ten thousand replicates favouring the control. Because comparing one confidence interval that excludes zero with another that spans zero does not formally establish a difference between two effects, and a ratio whose denominator spans
-zero is unstable, we compare the two effects directly on a fixed model pair across the same eleven sources. Holding the balanced LSTM and the control fixed across
-both eligibility frames, imposing the restriction shifts the sensitivity
-contrast between them by $+0.4367$, moving from a $0.0673$ lead for the control on the unrestricted frame to a $0.3695$ lead for the network on the restricted frame, with a paired source-bootstrap confidence interval of
-$[+0.2325, +0.5873]$ and only one of ten thousand replicates at or below zero.
-
-Omitting one source at a time separates the two effects further, consistent with the cohort-specific contrasts in Figure~\ref{fig:eligibility}c,~d. The unrestricted
-model contrast is driven by a single small cohort, falling from $+0.0620$ to $+0.0007$ when Shanghai T1DM is omitted and rising to $+0.1140$ when AZT1D is omitted. The restricted
-eligibility effect depends on no single cohort, remaining between $+0.3564$ and $+0.4127$
-across all eleven single-source omissions. The same contrast appears across individual cohorts. Across the five smallest cohorts the unrestricted model effect
-spans $-0.458$ to $+0.675$, whereas across the six cohorts with ten or more scored participants it spans only
-$-0.051$ to $+0.097$, changing sign among the smallest strata. Under the restriction, the eligibility effect lies between
-$+0.423$ and $+0.500$ in all seven cohorts with four or more scored participants, and the only
-cohort where it is negative contains three scored participants. Because this source-level bootstrap holds each source's internal participant macro-average fixed, it quantifies sensitivity to cohort composition rather than within-source participant sampling error. It therefore addresses the concern that four sources of two or three participants carry two thirds of the 60-minute gap, while leaving the pre-registered multiseed participant bootstrap on the horizon-averaged primary endpoint uncomputed.
-
-
-
-\FloatBarrier
-\subsection{The current-glucose control detects events later}
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_mechanism.pdf}
 \caption{Warning lead times, threshold crossings and refractory alarm collapse.
-\textbf{a}, Lead-time difference for 2{,}375 level 2 events matched by both the seed-17 balanced LSTM and current-glucose control at 60 minutes under the frozen unrestricted policy. The histogram separates earlier, tied and later LSTM warnings.
+\textbf{a}, Lead-time difference (LSTM minus control, in minutes, with positive values indicating earlier LSTM warnings) for 2{,}375 level 2 events matched by both the seed-17 balanced LSTM and current-glucose control at 60 minutes under the frozen unrestricted policy. The histogram separates earlier, tied and later LSTM warnings.
 \textbf{b}--\textbf{d}, Pre-registered exemplars at the 10th, 50th and 90th percentiles of lead-time difference. Squares denote control alarms and filled circles denote LSTM alarms. Outer rings identify alarms matched to onset. The 10th-percentile example is a tie.
 \textbf{e}, Five-minute threshold-positive windows per participant, before refractory filtering, at the frozen 30-minute thresholds across 153 selection participants. Filled markers show medians. Open markers show ninetieth percentiles and maxima on a logarithmic axis.
-\textbf{f}, Median warning time among matched events. Filled and open markers denote 30 and 60 minutes, respectively.
+\textbf{f}, Median warning lead time among each arm's own matched events. Filled and open markers denote the 30- and 60-minute horizons, respectively.
 \textbf{g}, \textbf{h}, Ratio of threshold-positive windows to alarms surviving the 30-minute refractory rule, against surviving alarm counts at the 30- and 60-minute horizons. Ratios increase across nine score quantiles for the control and TCN.
 \textbf{i}, \textbf{j}, Distinct events preceded by at least one threshold-positive window against surviving alarm counts for the same sweeps. These event-touch counts precede one-to-one alarm--event matching and are distinct from primary-endpoint detections.}
 \label{fig:mechanism}
 \end{figure}
 
-
-The current-glucose control and the trained networks behave differently even where their aggregate sensitivities appear similar. Although Spearman rank correlation
-between the control and either deep comparator is high across the full selection
-partition, rank agreement drops sharply within the low-glucose bands where alarms are triggered
-(Fig.~\ref{fig:eligibility}e), showing that global rank correlation carries little
-information about agreement in the critical warning band. At each arm's frozen calibration threshold on the unrestricted selection partition, the control's lead in event sensitivity is accompanied by inferior probability calibration. At both horizons, it has the worst Brier score (Supplementary Table~\ref{S-tab:quality}), measuring $0.1375$ and $0.1893$ compared with
-$0.0920$ and $0.1313$ for the strongest deep comparator. Its expected calibration error is
-likewise the largest at $0.272$ and $0.372$, compared with $0.180$ and $0.257$. Logistic calibration
-slopes exceed one for every evaluated arm, ranging between $1.46$ and $2.13$ with strongly negative
-intercepts, reflecting the systematic risk over-prediction examined in the next subsection. The reliability curves support the same conclusion at both horizons (Supplementary Fig.~\ref{S-sfig:reliability}a,~b). Every displayed positive-rate bin lies below the identity diagonal. Four of the sixty bins observed zero events, two for each deep arm at the 30-minute horizon, and are omitted from the logarithmic axes while remaining included in all numerical calibration statistics.
-
-The critical clinical distinction is warning lead time. At the 30-minute horizon, the
-control's median warning arrives only $5$ minutes before event onset, whereas the two deep comparators
-provide $15$ and $10$ minutes of lead time. At 60 minutes, median lead times are $10$ minutes for the control against $20$ and $15$ minutes for the deep networks (Figure~\ref{fig:mechanism}f).
-The baseline that matches the highest fraction of events on the unrestricted frame warns latest, providing only one third of the lead time at the shorter horizon. A five-minute warning leaves minimal time for oral
-carbohydrate intake to arrest a falling glucose trajectory, a distinction that binary event matching does not penalise.
-The event-paired lead-time distribution shows that this difference is present among events detected by both arms, and the three pre-specified percentile exemplars locate it along individual glucose trajectories (Figure~\ref{fig:mechanism}a--d). Combined with the eligibility-cut findings above, these two failures compound rather than offset, as the control alerts
-only after sensor glucose has already fallen to or below 61~mg/dL and warns late when it fires.
-
-%
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_calibration_diagnosis.pdf}
@@ -255,38 +83,6 @@ Primary sensitivity averages participant-macro level 2 event sensitivity equally
 \label{fig:calibration_diagnosis}
 \end{figure}
 
-Threshold-positive decision windows are concentrated among participants (Fig.~\ref{fig:mechanism}e). Before refractory filtering, the median selection participant has between
-123 and 169 threshold-positive windows across arms and horizons, whereas the ninetieth-percentile participant
-has between 435 and 694. The 15 participants with the most threshold crossings account for
-$35$ to $40\%$ of all crossings. This concentration differs by at most $5.4$ percentage points across arms at 60 minutes. These pre-refractory counts describe repeated threshold crossings rather than the distribution of delivered alarms. The score-quantile sweeps make that distinction explicit. More threshold-positive windows collapse into each surviving alarm as alarm counts increase (Figure~\ref{fig:mechanism}g,~h), while the number of distinct events touched also rises (Figure~\ref{fig:mechanism}i,~j). An event touched before matching is not necessarily a separately detected event under one-to-one matching. These curves therefore describe how repeated crossings are converted into candidate warnings, rather than replacing the matched-event sensitivity comparison.
-
-
-
-\FloatBarrier
-\subsection{Within-band ranking and cross-band calibration reveal complementary errors}
-
-
-Secondary diagnostic evaluations, specified after the frozen primary comparison, separate within-band discrimination from cross-band calibration by partitioning eligible decisions into six current-glucose bands. Within every glucose band, the trained
-networks order windows substantially better than current glucose alone, achieving window average-precision multiples of $3.9$ to $1{,}473$ times
-current glucose at 30 minutes and $2.9$ to $19.8$ times at 60 minutes (Figure~\ref{fig:calibration_diagnosis}b,~d).
-Calibration across glucose bands is the primary deficit. Every band is over-predicted, and the ratio of mean predicted
-risk to observed event rate rises strictly monotonically with current glucose at 30 minutes, increasing from $64$ to
-$918$ for the balanced LSTM and from $60$ to $943$ for the TCN. The
-zero-order-hold control exhibits a non-monotonic ratio that peaks in the mid-range and declines at higher glucose values (Figure~\ref{fig:calibration_diagnosis}a,~c). The trained networks inflate relative predicted risk most severely when current glucose is highest. This pattern coexists with logistic calibration slopes above one on the unrestricted frame (Figure~\ref{fig:calibration_diagnosis}j), distinguishing systematic risk miscalibration from the useful relative ordering retained within individual glucose bands.
-
-Single-model glucose-conditional recalibration did not improve operational sensitivity in the evaluated analyses. Three transformations of a
-single arm's score, with mappings or regression coefficients fitted on the calibration partition and evaluated on the selection
-partition, all reduce sensitivity relative to the corresponding uncorrected arm on the same eligibility frame (Figure~\ref{fig:calibration_diagnosis}e,~g). The retrospective parametric diagnostic standardizes log-glucose using pooled calibration and selection covariates, so its preprocessing is not calibration-only. Its fitted quadratic coefficients vary by arm and horizon (Figure~\ref{fig:calibration_diagnosis}h). The state-conditional rank analysis covers both unrestricted and restricted frames, while the isotonic analysis here uses the restricted frame. The only transformation among four that improves the diagnosed network is a single-band global isotonic recalibration using no glucose conditioning, worth $0.0085$ (Figure~\ref{fig:calibration_diagnosis}f). Band-conditional recalibration is limited structurally by event sparsity at high glucose levels, as the highest glucose band contains only 25 positive 30-minute windows out of 973{,}604 eligible decisions. Positive windows also become sparse at the longer horizon (Figure~\ref{fig:calibration_diagnosis}i), leaving independent band-wise mappings poorly determined. The Supplementary Information reports the numerical results for all four transformations.
-
-What recovers performance on the restricted frame is combining models with complementary error structures. An equal-weight calibration-rank average of the two
-deep comparators and the zero-order-hold control, with all rank mappings and alarm thresholds fitted on the
-calibration partition alone, achieves a restricted-frame primary sensitivity of $0.5800$ compared with $0.5212$ for the best single network, a gain of $0.0589$ across both horizons while triggering $9.3\%$ fewer
-alarms. This gain reflects complementarity between model families rather than ensemble size alone. Although the current-glucose control scores only $0.1517$ alone and ranks last of
-seven arms under the restriction, adding it to the two deep networks increases their combined sensitivity by $0.0198$ over the two-network average alone.
-Pairing the control with a single deep network on the restricted frame increases sensitivity by $0.0416$ for the balanced LSTM
-but reduces sensitivity by $0.0041$ for the TCN, while a six-arm combination scores below the best single network. Thus, on these cohorts, the evaluated single-model glucose-conditional recalibrations did not overcome the combination of cross-band error and high-glucose event sparsity, whereas combining the current-glucose ranking with a learned temporal network improved operational sensitivity without retraining.
-
-%
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_forecast.pdf}
@@ -302,153 +98,20 @@ Primary sensitivity averages participant-macro level 2 event sensitivity equally
 \label{fig:forecast}
 \end{figure}
 
-\subsection{Forecast-derived alarms remain below directly predicted event scores}
-
-
-Because the zero-order-hold control succeeds on the unrestricted frame by observing current glucose without error, we next quantify the forecast accuracy required for a point glucose forecaster to outperform current glucose. Replacing each arm's classification score with a score derived from its point glucose forecast, and sweeping
-forecast accuracy by blending the predicted glucose trajectory with observed future glucose at controlled
-weights, traces primary sensitivity as a function of achieved forecast error
-(Figure~\ref{fig:forecast}a,~b). Every point along the sweep refits its alarm threshold on the calibration partition under the frozen protocol, and comparing linear shrinkage against unbiased Gaussian noise at matched root-mean-square error isolates the effect of forecast error structure from error magnitude. Evaluated against the current-glucose control's unrestricted score of $0.8061$, a shrinkage forecaster must reach approximately
-$7.7$~mg/dL of 30-minute root-mean-square error before forecast-derived thresholding outperforms current glucose (interpolated between measured grid
-points), whereas an unbiased noisy forecaster crosses the control at approximately
-$5.0$~mg/dL (interpolated between $5.90$ and the measured zero-error oracle). By comparison, our trained network's glucose forecast sits at $23.6$~mg/dL and achieves a primary sensitivity of only $0.2911$, while the forecast-derived alarms from both evaluated neural architectures remain below the control (Figure~\ref{fig:forecast}j). The sweep changes surviving alarm counts, matched events and achieved false-alarm rates together, so its sensitivity gains do not represent comparisons at identical achieved alarm burden (Figure~\ref{fig:forecast}e--g). The cohort-specific trajectories nevertheless show sensitivity recovering as forecast error approaches zero (Figure~\ref{fig:forecast}h).
-
-Interpreting these diagnostic thresholds requires separating forecast error magnitude from both study design and error structure.
-The lowest 30-minute forecast error we verified in published work is $6.82$~mg/dL
-\citep{huang2025probsparse}, which lies below the shrinkage breakeven point but above the unbiased breakeven point (Figure~\ref{fig:forecast}c). That result was obtained on twelve
-participants using insulin and carbohydrate inputs under a within-subject split, whereas our benchmark evaluates glucose-only models across eleven participant-disjoint cohorts and a sealed external cohort. Reaching breakeven forecast accuracy under cross-cohort generalisation therefore remains a demanding modelling route. Within the present dataset, error magnitude alone is also insufficient. At a matched error of $23.6$~mg/dL, our trained neural forecast achieves substantially lower warning sensitivity ($0.2911$) than unbiased noise of identical magnitude around true future glucose ($0.4814$,
-Figure~\ref{fig:forecast}a,~d). Correlation diagnostics explain why, as the trained forecast correlates with current
-glucose at $0.9596$ at 30 minutes whereas true future glucose correlates with current glucose at $0.8904$
-(Figure~\ref{fig:forecast}i). The regression forecast over-persists the current glucose reading and smooths away rapid downward excursions.
-
-
-\FloatBarrier
-\subsection{Combining complementary scores improves development sensitivity}
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_composition.pdf}
 \caption{Calibration-rank composition across seeds, comparator pairings and external evaluation.
+The composition equally averages calibration-rank scores from the current-glucose control and source-balanced LSTM.
 Primary sensitivity averages participant-macro level 2 event sensitivity equally over sources and horizons.
 \textbf{a}, Selection-partition composition values for five LSTM seeds, against the seed-17 LSTM and current-glucose control. The connecting line spans the seed minimum and maximum, not a confidence interval. Open diamonds lie below the dashed promotion floor. Crossing this floor alone does not establish formal promotion.
 \textbf{b}, Each arm paired with the control versus that arm alone. The diagonal denotes no change. Horizontal solid and dashed lines mark the control and promotion floor. All twenty-five non-negative-control pairings improve, sixteen exceed the control and twelve clear the floor. Open triangles show the global constant, per-source constant and label-shuffled logistic controls. Only the global constant reproduces the control alone.
 \textbf{c}, Ordered single-arm and paired values, excluding negative controls.
 \textbf{d}, Per-cohort 30-minute sensitivities for the composition and its two members across eleven development sources.
-\textbf{e}, Composition minus each member. Gains occur against the control in ten cohorts and against the LSTM in all eleven. The sole deficit is against the control in Shanghai T1DM.
+\textbf{e}, Composition minus constituent sensitivity at 30 minutes. Gains occur against the control in ten cohorts and against the LSTM in all eleven. The sole deficit is against the control in Shanghai T1DM.
 \textbf{f}, Primary sensitivity on development selection and the external cohort of 843 participants, using one frozen trained seed and the frozen development alarm policy.
 \textbf{g}, \textbf{h}, Refractory-surviving alarms and matched events at both development horizons.
 \textbf{i}, Horizon-specific development sensitivities.
 \textbf{j}, Achieved development false-alarm rates against the nominal 0.5 false alarms per participant-day.}
 \label{fig:composition}
 \end{figure}
-
-
-Motivated by the complementary failure modes identified above, combining the calibration-rank scores of the current-glucose control and a trained neural network clears the pre-registered promotion floor on the unrestricted primary endpoint without training a new model (Figure~\ref{fig:composition}a). As detailed in Methods, each constituent arm's score is mapped through the
-empirical distribution function of its own calibration-partition scores, the mapped rank scores are averaged
-at equal weight, and an alarm threshold is fitted on the calibration partition using the common evaluator. Single-member identity checks confirmed that passing each individual arm through this pipeline reproduced its frozen primary endpoint exactly ($0.806116$, $0.738848$ and $0.744154$). Combining the zero-order-hold control with the source-balanced LSTM clears the pre-registered promotion floor of
-$0.8361$. Because the control is deterministic whereas the deep network varies across training seeds, we evaluated the
-composition across all five training seeds of the balanced LSTM, obtaining $0.9245$, $0.8989$, $0.8333$,
-$0.9129$ and $0.8960$, with a five-seed mean of $0.8931$ and a standard deviation of $0.0353$.
-Because the pre-registered seed happens to produce the highest score of the five fits, a
-single-seed report would represent a five-seed maximum rather than a typical value, whereas the five-seed mean exceeds the promotion floor by $+0.0570$ rather
-than the $+0.0884$ observed at the registered seed. At the registered seed, two
-additional compositions incorporating the control also clear the promotion floor, namely the
-pre-specified three-member composition at $0.8935$ and the pairing of the control with the TCN comparator at
-$0.8928$. The selected two-member composition also leads both members at each development horizon, rather than obtaining its mean advantage from one horizon alone (Figure~\ref{fig:composition}i).
-
-Comparison with the two-network composition that omits the control demonstrates why cross-family complementarity is essential. Averaging the two deep networks (LSTM and TCN) with
-each other reaches $0.7702$, which improves upon each network individually by $0.031$ and
-$0.026$ but remains below the current-glucose control alone ($0.8061$) and well below every pairing that
-includes the control. Averaging the two neural architectures yields a smaller gain than pairing either with the current-glucose control. This pattern is consistent with the control's advantage near its alarm threshold and the networks' stronger ranking within the evaluated glucose bands. The cohort-specific comparisons show that the selected composition improves on the LSTM at 30 minutes in every development source and on the control in all but Shanghai T1DM (Figure~\ref{fig:composition}d,~e). Supplementary Table~\ref{S-tab:per_source} reports both horizons alongside the total and event-positive participant counts, making the contribution of each small stratum explicit.
-
-Because integer quantisation of sensor glucose to 1~mg/dL prevents the control from exhausting its nominal false-alarm budget, we report the composition's development gain in three ways. At the registered nominal budget, the composition exceeds the control by $0.1184$. That nominal comparison is inflated by alarm-rate undershoot, as the quantised control triggers $14{,}360$ alarms where the composition triggers $17{,}185$. Stepping the control up to a nominal $0.6$ budget, where it triggers $17{,}464$ alarms, yields a sensitivity difference of
-$0.0616$ at the closest available alarm count. Because triggered alarm counts at that stepped setting still differ by $+279$ and $-762$ across the two
-horizons and achieved false-alarm rates differ by $0.090$ and $0.031$, this stepped contrast represents the closest available discrete comparison rather than exact alarm equality. Relative to the deep network member alone, triggered alarm counts match closely ($17{,}185$ and $18{,}226$ versus $17{,}421$ and $18{,}480$), where the composition leads its deep member by
-$0.1856$. The accompanying alarm and matched-event counts separate this gain from simply triggering more warnings, while the achieved false-alarm rates reveal residual differences from the common nominal target (Figure~\ref{fig:composition}g,~h,~j).
-
-This two-member pairing was selected after inspecting the development selection partition. While the analysis plan pre-specified the three-member combination, the two-member pairing of the control and balanced LSTM was one of four
-descriptive alternatives evaluated alongside it and is highlighted here because it
-achieved the highest development score. The five-seed development tests below quantify run-to-run seed variability conditional on that post-hoc choice without adjustment for selecting among the four combinations. Only this single frozen pairing was carried forward to the sealed external cohort, where its evaluation is unaffected by selection among combinations. Clearing the promotion floor satisfies only the point-estimate margin component of the conjunctive promotion rule, which also requires a multiseed source-stratified paired
-participant-bootstrap lower bound above zero and compliance with the alarm-burden guard. Because the multiseed participant bootstrap across the complete seed set was not computed, we do not claim formal protocol promotion and instead report run-to-run uncertainty across the five training seeds.
-
-Because the promotion floor and the deterministic control are fixed constants, we evaluate the five-seed composition scores using two-sided
-one-sample $t$-tests on four degrees of freedom rather than dividing by a
-transferred standard deviation. Across the five seeds, the composition
-clears the promotion floor by a mean of $+0.0570$
-($t=3.61$, 4 d.f.) and leads the control by $+0.0870$ ($t=5.51$). Paired by seed
-against its own deep network member, which removes shared seed-to-seed variance, the composition leads
-by $+0.1964$ ($t=25.2$). Across this three-test family, Holm-adjusted $P$ values are $0.023$, $0.011$ and ${<}0.001$, respectively. These parametric tests depend on a Gaussian assumption that five values cannot verify, so we also compare them against an exact nonparametric sign-flip test assuming only exchangeability. With five observations, an exhaustive sign-flip test cannot yield a two-sided $P$ value below $P=0.0625$, placing both one-sample parametric $P$ values below the resolution floor of an exact nonparametric test at this sample size. Because all five fits share a single dataset and participant split, they quantify
-optimisation variance rather than cohort sampling variance. The Supplementary Information reports the exact sign-flip values and the empirical seed distributions.
-
-To verify whether this improvement reflects a general property of the calibration-rank construction rather than a single fortuitous pairing, we paired every arm on the comparator ladder with the current-glucose control and rescored each combination on the frozen primary endpoint. Across all twenty-five pairings of trained model fits with the control (excluding the three negative-control arms), every pairing improves upon the trained member alone
-(Figure~\ref{fig:composition}b), sixteen beat the control alone, and twelve clear the promotion
-floor. The ordered distribution of individual and paired scores shows that gains over an individual member are more common than clearing the promotion floor (Figure~\ref{fig:composition}c). The three negative-control pairings behave distinctly, as combining the global
-constant baseline with the control reproduces the control's exact value, whereas combining the per-source constant
-or label-shuffled baseline with the control reduces primary sensitivity to $0.2154$ and $0.1377$, far below the control's $0.8061$.
-Improving upon an individual member does not guarantee that a combination outperforms the
-control.
-
-
-
-\FloatBarrier
-\subsection{The frozen combination improves on its deep member in the external cohort}
-
-The sealed external cohort was opened once after every model checkpoint, rank mapping, alarm threshold and evaluation script was
-frozen, with no modification to any protocol component after unsealing. Alarm thresholds fitted on the development
-calibration partition at a nominal 0.5 false alarms per participant-day were applied
-unchanged. The Loop Observational Study contributes 843 eligible participants and
-$75{,}182{,}145$ scored decisions, exceeding the total person-days of the eleven-source
-development set. The candidate carried forward is the two-member composition combining
-the zero-order-hold control with the source-balanced LSTM. Its frozen external evaluator uses the right-continuous
-step-ECDF rank mappings specified in Methods, fitted to development calibration data
-and frozen before external unsealing, whereas the preceding development analyses used piecewise-linear
-interpolated ranks. Although both implementations reproduce identical development
-endpoint summaries, the two rank mappings are not algebraically identical.
-
-On the sealed external cohort, the composition's lead over its deep network member holds, while sensitivity margins narrow slightly relative to development
-(Table~\ref{tab:external} and Figure~\ref{fig:composition}f).
-The composition outperforms both constituent members on unseen external data that no arm
-was trained, selected or calibrated on. The composition is the only arm of the three that
-scores slightly lower externally than internally (by $0.0088$), whereas the control increases by
-$0.0172$ and the deep arm increases by $0.0220$, compressing the composition's unadjusted difference over the control from $0.1184$ to
-$0.0924$ and its margin over the deep arm from $0.1856$ to $0.1548$. Achieved false-alarm burdens distinguish these two external differences. Relative to the deep network member, the external alarm budgets match closely. The composition
-triggers $290{,}325$ and $313{,}037$ alarms compared with $284{,}347$ and $307{,}583$ for the deep network (roughly
-two per cent more total alarms at either horizon), while achieving a lower participant-averaged false-alarm rate at both horizons ($0.784$ versus $0.790$ and $0.851$ versus $0.869$). The external margin of $0.1548$ over the deep network is achieved at a matched alarm budget.
-
-Relative to the current-glucose control, the external alarm budgets do not match. On Loop, the control
-triggers $241{,}081$ alarms at an achieved rate of $0.636$ false alarms per participant-day, whereas
-the composition triggers $20\%$ more alarms at 30 minutes and $30\%$ more at 60 minutes, so the
-$0.0924$ external difference is reported as an unadjusted difference at fixed thresholds rather than an alarm-matched margin. Equalising external alarm counts would require sweeping thresholds on the held-out cohort, which the locked protocol prohibits. The uncertainty interpretation is also limited to this frozen external comparison. No external contrast is divided by a seed standard deviation because each external arm was evaluated as a single frozen fit. Although a five-seed standard deviation of $0.0353$ was measured for the composition on the development selection partition, the external cohort was unsealed once for a single frozen seed, and transferring the development seed scale across a cohort shift would repeat the cross-domain variance extrapolation error documented above.
-
-In the pre-registered HUPA-UCM stress-test source, the frozen calibration thresholds place the three arms at widely different operating points, precluding a valid comparative ranking. Across its 25
-participants, achieved false-alarm rates differ across arms by a factor of $2.6$, as the control reaches $0.9562$ sensitivity while spending $1.15$ false alarms
-per participant-day ($2.3$ times its nominal calibration budget), whereas the deep network
-spends $0.44$. Event sensitivity evaluated at unequal false-alarm budgets cannot order models, nor could 25
-participants outweigh an 843-participant primary external cohort. What this stress source establishes instead concerns threshold transfer. An alarm threshold calibrated on eleven development cohorts can transfer its target false-alarm rate imperfectly to a twelfth cohort, and the direction of that miscalibration varies by model family. Whereas the current-glucose control deviated least from its nominal budget on Loop and overshot severely on HUPA-UCM, and the deep network exhibited the opposite pattern, the rank-averaged composition remained intermediate on both cohorts and avoided the extreme operating-point failures of either constituent member.
-
-\begin{table}[!htp]
-\centering
-\caption{External level 2 event sensitivity under frozen development alarm policies.
-Loop and HUPA-UCM contain 843 and 25 analysed participants, respectively.
-Primary is the equal-weight mean of the 30- and 60-minute sensitivities, each averaged over event-positive participants. Higher sensitivity is better. Achieved false alarms per participant-day (FA/day) averages all eligible participants.
-Combination denotes the equal-weight calibration-rank composition of the current-glucose control (Zero-order hold) and source-balanced LSTM (Deep arm), using the registered trained fit.
-Thresholds were fitted on development calibration data at a nominal 0.5 false alarms per participant-day and applied unchanged.
-Sensitivity, FA/day and refractory-surviving alarm counts are listed in 30- then 60-minute order. Alarm suppression uses a 30-minute refractory interval.
-Stress-source results are descriptive and do not rank arms, because their achieved false-alarm rates differ by a factor of $2.6$.}
-\label{tab:external}
-{\small\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llrrrr}
-\toprule
-Cohort & Arm & Primary & 30 / 60 min & Achieved FA/day & Alarms \\
-\midrule
-Loop & Combination & $0.9156$ & $0.9130$ / $0.9182$ & $0.784$ / $0.851$ & $290{,}325$ / $313{,}037$ \\
-Loop & Zero-order hold & $0.8233$ & $0.8205$ / $0.8261$ & $0.636$ / $0.631$ & $241{,}081$ / $241{,}081$ \\
-Loop & Deep arm & $0.7609$ & $0.7929$ / $0.7289$ & $0.790$ / $0.869$ & $284{,}347$ / $307{,}583$ \\
-\midrule
-HUPA-UCM & Zero-order hold & $0.9562$ & $0.9475$ / $0.9649$ & $1.145$ / $1.121$ & $1{,}466$ / $1{,}466$ \\
-HUPA-UCM & Combination & $0.8273$ & $0.8970$ / $0.7576$ & $0.701$ / $0.689$ & $991$ / $939$ \\
-HUPA-UCM & Deep arm & $0.2870$ & $0.2879$ / $0.2860$ & $0.440$ / $0.518$ & $594$ / $668$ \\
-\bottomrule
-\end{tabular}}
-\end{table}
-
-\FloatBarrier
