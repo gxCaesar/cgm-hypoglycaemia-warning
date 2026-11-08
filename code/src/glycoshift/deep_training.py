@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,11 +51,16 @@ from .sampling import SourceBalancedSampler
 from .schema import ACTION_FIELDS
 from .sequences import (
     REGRESSION_HORIZONS,
+    REVISION_CONTRACT,
+    SEQUENCE_FEATURES,
     TASKS,
     ParticipantSequenceStore,
     SequenceScaler,
     WindowSequenceDataset,
     sample_training_windows,
+    training_target_arrays,
+    training_window_sampling_masks,
+    validate_input_feature_mode,
 )
 from .severe_target import (
     attach_severe_training_targets,
@@ -262,6 +267,7 @@ def _positive_weights(
     windows: pd.DataFrame,
     *,
     mode: str = "prevalence",
+    use_training_targets: bool = False,
 ) -> torch.Tensor:
     """Per-task positive-class weight.
 
@@ -282,24 +288,56 @@ def _positive_weights(
     over-prediction rising strictly monotonically from 64x to 918x with
     glucose. M0's own record attributes 12.69 of a 55-fold over-prediction to
     this weighting against 4.34 to the target mismatch it was built to fix.
+
+    ``use_training_targets`` is the dated revision opt-in. It counts only the
+    actual retained training targets/masks and keeps the same ratio cap/rule.
+    The default preserves historical M0's ordinary-label weighting defect so
+    retained results can still be reconstructed without changing their recipe.
     """
 
     if mode not in {"prevalence", "uniform"}:
         raise ValueError(
             f"training.positive_weight_mode must be prevalence or uniform, got {mode!r}"
         )
+    resolved = training_target_arrays(windows) if use_training_targets else None
     weights: list[float] = []
-    for task in TASKS:
+    for position, task in enumerate(TASKS):
         if mode == "uniform":
             weights.append(1.0)
             continue
-        kind = task.split("_")[0]
-        eligible = windows.loc[~windows[f"{kind}_currently_active"]]
-        labels = eligible[f"{task}_label"].to_numpy(dtype=int)
-        positives = max(1, int(labels.sum()))
-        negatives = max(1, int(len(labels) - labels.sum()))
+        if resolved is None:
+            kind = task.split("_")[0]
+            eligible = windows.loc[~windows[f"{kind}_currently_active"]]
+            labels = eligible[f"{task}_label"].to_numpy(dtype=int)
+        else:
+            targets, masks = resolved
+            labels = targets[masks[:, position], position].astype(float)
+        positives = max(1.0, float(labels.sum()))
+        negatives = max(1.0, float(len(labels) - labels.sum()))
         weights.append(min(100.0, negatives / positives))
     return torch.tensor(weights, dtype=torch.float32)
+
+
+def _training_target_audit(
+    windows: pd.DataFrame, positive_weights: torch.Tensor
+) -> dict[str, Any]:
+    targets, masks = training_target_arrays(windows)
+    tasks = {}
+    for position, task in enumerate(TASKS):
+        target = f"{task}_training_target"
+        mask = f"{task}_training_mask"
+        retained = targets[masks[:, position], position].astype(float)
+        tasks[task] = {
+            "target_column": target if target in windows else f"{task}_label",
+            "mask_column": (
+                mask if mask in windows else "legacy_currently_active_and_label_present"
+            ),
+            "retained_count": int(len(retained)),
+            "positive_count": float(retained.sum()),
+            "negative_count": float(len(retained) - retained.sum()),
+            "positive_weight": float(positive_weights[position]),
+        }
+    return {"sampled_window_count": len(windows), "tasks": tasks}
 
 
 def _drop_action_groups(
@@ -624,14 +662,14 @@ def _predict_dataset(
         for batch in loader:
             indices = batch["dataset_index"].long()
             representation = embeddings[indices].to(device)
-            query_metadata = [
-                dataset.metadata(int(index))
-                for index in indices.tolist()
-            ]
             if bank is None:
                 memory = None
                 padding = None
             else:
+                query_metadata = [
+                    dataset.metadata(int(index))
+                    for index in indices.tolist()
+                ]
                 memory, padding = bank.retrieve(
                     query_embeddings=representation,
                     query_metadata=query_metadata,
@@ -666,19 +704,27 @@ def _predict_dataset(
     return predictions
 
 
-def _selection_score(predictions: pd.DataFrame) -> float:
+def _selection_score(
+    predictions: pd.DataFrame, *, use_training_targets: bool = False
+) -> float:
     scores: list[float] = []
-    for task in TASKS:
-        kind = task.split("_")[0]
-        eligible = predictions.loc[~predictions[f"{kind}_currently_active"]]
-        labels = eligible[f"{task}_label"].to_numpy(dtype=int)
+    resolved = training_target_arrays(predictions) if use_training_targets else None
+    for position, task in enumerate(TASKS):
+        if resolved is None:
+            kind = task.split("_")[0]
+            mask = ~predictions[f"{kind}_currently_active"]
+            labels = predictions[f"{task}_label"].loc[mask].to_numpy(dtype=int)
+        else:
+            targets, masks = resolved
+            mask = masks[:, position]
+            labels = targets[mask, position]
         if len(np.unique(labels)) < 2:
             continue
         scores.append(
             float(
                 average_precision_score(
                     labels,
-                    eligible[f"{task}_probability"],
+                    predictions[f"{task}_probability"].loc[mask],
                 )
             )
         )
@@ -900,7 +946,36 @@ def run_deep_training(
     config: dict[str, Any],
     *,
     architecture: str = "glycoshift",
+    prepared_data: tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]] | None = None,
+    revision_checkpoint_proxy: Callable | None = None,
+    revision_calibrator: Callable | None = None,
+    revision_reporter: Callable | None = None,
 ) -> Path:
+    revision_contract = config["training"].get("revision_contract")
+    if revision_contract not in (None, REVISION_CONTRACT):
+        raise ValueError(f"unsupported training.revision_contract: {revision_contract}")
+    revision = revision_contract is not None
+    input_feature_mode = validate_input_feature_mode(
+        str(config["model"].get("input_feature_mode", "multimodal"))
+    )
+    if revision and (
+        prepared_data is None
+        or revision_checkpoint_proxy is None
+        or revision_calibrator is None
+        or revision_reporter is None
+    ):
+        raise ValueError(
+            "revision training requires prepared_data and fixed-frame callbacks"
+        )
+    if not revision and any(
+        callback is not None
+        for callback in (
+            revision_checkpoint_proxy, revision_calibrator, revision_reporter
+        )
+    ):
+        raise ValueError("revision callbacks require training.revision_contract")
+    if prepared_data is not None and not revision:
+        raise ValueError("prepared_data requires training.revision_contract")
     seed = int(
         config["training"].get("seed", config["split"]["seed"])
     )
@@ -921,7 +996,11 @@ def run_deep_training(
             f"refusing to overwrite an existing real-data run: {run_dir}"
         )
     validate_training_output_isolation(config, run_dir)
-    frame, windows, audit = _load_development_training_data(config)
+    frame, windows, audit = (
+        prepared_data
+        if prepared_data is not None
+        else _load_development_training_data(config)
+    )
     run_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = run_dir / "ckpts"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -966,6 +1045,10 @@ def run_deep_training(
     )
     training = config["training"]
     event_objective = str(training.get("event_objective", "bce"))
+    if revision and event_objective != "severe_retarget":
+        raise ValueError(
+            "fixed-frame revision requires event_objective severe_retarget"
+        )
     if event_objective == "tls_exp":
         train_windows = attach_tls_exp_targets(
             train_windows,
@@ -989,7 +1072,36 @@ def run_deep_training(
         # column, and so the negative-subsampling positive mask below, is left
         # alone, which is what keeps this arm a single-variable change from its
         # control.
-        train_windows = attach_severe_training_targets(train_windows, copy=False)
+        if revision:
+            # The timeline builder owns horizon-specific base-evaluability masks.
+            # Require its explicit targets/masks instead of overwriting them here.
+            for current_windows in (
+                train_windows, selection_windows, calibration_windows
+            ):
+                required = {
+                    f"hypo_{horizon}_training_{suffix}"
+                    for horizon in (30, 60)
+                    for suffix in ("target", "mask")
+                }
+                missing = sorted(required.difference(current_windows.columns))
+                if missing:
+                    raise ValueError(
+                        f"revision timeline is missing target/mask columns: {missing}"
+                    )
+                targets, masks = training_target_arrays(current_windows)
+                for position, horizon in enumerate((30, 60)):
+                    severe = current_windows[
+                        f"severe_hypo_{horizon}_label"
+                    ].to_numpy(float)
+                    retained = masks[:, position]
+                    if not np.array_equal(
+                        targets[retained, position], severe[retained]
+                    ):
+                        raise ValueError(
+                            f"revision hypo_{horizon} target differs from severe label"
+                        )
+        else:
+            train_windows = attach_severe_training_targets(train_windows, copy=False)
         severe_audit = summarize_severe_targets(train_windows)
         severe_audit["objective"] = "severe_retarget"
         write_json(severe_audit, run_dir / "severe_target_audit.json")
@@ -1024,14 +1136,17 @@ def run_deep_training(
             train_windows["participant_id"].astype(str),
         )
     )
-    scaler = SequenceScaler.fit(frame, train_keys)
+    scaler = SequenceScaler.fit(
+        frame, train_keys, input_feature_mode=input_feature_mode
+    )
     write_json(scaler.as_dict(), run_dir / "scaler.json")
-    dropout_probabilities = _action_dropout_probabilities(
-        frame,
-        train_keys,
-        maximum=float(
-            config["training"].get("feature_group_dropout_max", 0.5)
-        ),
+    dropout_probabilities = (
+        {field: 0.0 for field in ACTION_FIELDS}
+        if input_feature_mode == "cgm_mask_clock"
+        else _action_dropout_probabilities(
+            frame, train_keys,
+            maximum=float(training.get("feature_group_dropout_max", 0.5)),
+        )
     )
     write_json(
         dropout_probabilities,
@@ -1041,12 +1156,62 @@ def run_deep_training(
         train_windows,
         negative_ratio=float(config["training"]["negative_ratio"]),
         seed=int(training.get("data_sampling_seed", seed)),
+        use_training_targets=revision,
     )
     window_counts["train_windows_after_sampling"] = len(sampled_train)
     positive_weights = _positive_weights(
         sampled_train,
         mode=str(training.get("positive_weight_mode", "prevalence")),
+        use_training_targets=revision,
     )
+    target_audit = (
+        _training_target_audit(sampled_train, positive_weights) if revision else None
+    )
+    if target_audit is not None:
+        sampling_positive, sampling_usable = training_window_sampling_masks(
+            train_windows
+        )
+        retained_positive, _ = training_window_sampling_masks(sampled_train)
+        target_audit["sampling"] = {
+            "positive_basis": "any_training_target_equal_one_and_task_mask",
+            "input_window_count": len(train_windows),
+            "usable_window_count": int(sampling_usable.sum()),
+            "excluded_no_loss_count": int((~sampling_usable).sum()),
+            "input_positive_count": int(sampling_positive.sum()),
+            "sampled_positive_count": int(retained_positive.sum()),
+            "sampled_negative_count": int((~retained_positive).sum()),
+            "negative_ratio": float(training["negative_ratio"]),
+            "data_sampling_seed": int(training.get("data_sampling_seed", seed)),
+        }
+        target_audit["positive_weight_mode"] = str(
+            training.get("positive_weight_mode", "prevalence")
+        )
+        target_audit["positive_weight_basis"] = "retained_training_targets_and_masks"
+        target_audit["positive_weight_cap"] = 100.0
+    input_contract = {
+        "input_feature_mode": input_feature_mode,
+        "feature_width": len(SEQUENCE_FEATURES),
+        "active_features": list(
+            (SEQUENCE_FEATURES[:2] + SEQUENCE_FEATURES[-2:])
+            if input_feature_mode == "cgm_mask_clock" else SEQUENCE_FEATURES
+        ),
+        "zeroed_features": (
+            list(SEQUENCE_FEATURES[2:-2])
+            if input_feature_mode == "cgm_mask_clock" else []
+        ),
+        "action_dropout_applied": any(
+            value > 0 for value in dropout_probabilities.values()
+        ),
+    }
+    if revision:
+        write_json(target_audit, run_dir / "training_target_audit.json")
+        write_json(
+            {
+                "revision_contract": revision_contract,
+                **input_contract, "targets": target_audit,
+            },
+            run_dir / "effective_training_contract.json",
+        )
     context_samples = int(
         float(config["protocol"]["context_hours"])
         * 60
@@ -1058,7 +1223,9 @@ def run_deep_training(
             sorted(sampled_train["source_id"].astype(str).unique())
         )
     }
-    participant_store = ParticipantSequenceStore.from_frame(frame)
+    participant_store = ParticipantSequenceStore.from_frame(
+        frame, input_feature_mode=input_feature_mode
+    )
     dataset_class = _window_dataset_class(config)
     train_dataset = dataset_class(
         frame,
@@ -1068,6 +1235,8 @@ def run_deep_training(
         source_to_index=source_to_index,
         participant_store=participant_store,
         copy_windows=False,
+        input_feature_mode=input_feature_mode,
+        revision_contract=revision_contract,
     )
     selection_dataset = dataset_class(
         frame,
@@ -1076,6 +1245,8 @@ def run_deep_training(
         context_samples=context_samples,
         participant_store=participant_store,
         copy_windows=False,
+        input_feature_mode=input_feature_mode,
+        revision_contract=revision_contract,
     )
     calibration_dataset = dataset_class(
         frame,
@@ -1084,6 +1255,8 @@ def run_deep_training(
         context_samples=context_samples,
         participant_store=participant_store,
         copy_windows=False,
+        input_feature_mode=input_feature_mode,
+        revision_contract=revision_contract,
     )
     del (
         frame,
@@ -1170,6 +1343,8 @@ def run_deep_training(
         _calibrate_operational_endpoint,
         _checkpoint_proxy,
     )
+    if revision:
+        _checkpoint_proxy = revision_checkpoint_proxy
 
     # The segment-sampled operational surrogate. Absent from every existing config,
     # so every completed run and every other arm is unaffected. When present it adds
@@ -1408,7 +1583,9 @@ def run_deep_training(
             selection_rule=checkpoint_selection_rule,
             budget=checkpoint_budget,
         )
-        window_score = _selection_score(selection_predictions)
+        window_score = _selection_score(
+            selection_predictions, use_training_targets=revision
+        )
         key = (operational_score, window_score, -tie_fapd, -float(epoch))
         epoch_payload = {
             "epoch": epoch,
@@ -1484,63 +1661,69 @@ def run_deep_training(
     ):
         _attach_severe_scores(current_predictions)
         _restore_regression_scale(current_predictions, scaler)
-    task_summary: dict[str, Any] = {}
-    for task in TASKS:
-        kind, horizon_text = task.split("_")
-        horizon = int(horizon_text)
-        eligible = calibration_predictions.loc[
-            ~calibration_predictions[f"{kind}_currently_active"]
-        ].copy()
-        temperature = fit_temperature(
-            eligible[f"{task}_label"].to_numpy(dtype=int),
-            eligible[f"{task}_logit"].to_numpy(dtype=float),
+    if revision:
+        task_summary, operational = revision_calibrator(
+            selection_predictions, calibration_predictions,
+            config=config, source_order=source_order,
         )
-        for predictions in (selection_predictions, calibration_predictions):
-            predictions[f"{task}_probability"] = apply_temperature(
-                predictions[f"{task}_logit"].to_numpy(dtype=float),
-                temperature,
-            )
-        conformal_threshold = fit_conformal_threshold(
-            eligible[f"{task}_label"].to_numpy(dtype=int),
-            apply_temperature(
+    else:
+        task_summary: dict[str, Any] = {}
+        for task in TASKS:
+            kind, horizon_text = task.split("_")
+            horizon = int(horizon_text)
+            eligible = calibration_predictions.loc[
+                ~calibration_predictions[f"{kind}_currently_active"]
+            ].copy()
+            temperature = fit_temperature(
+                eligible[f"{task}_label"].to_numpy(dtype=int),
                 eligible[f"{task}_logit"].to_numpy(dtype=float),
-                temperature,
-            ),
-            alpha=0.1,
-        )
-        thresholds: dict[str, float] = {}
-        for target in config["evaluation"]["false_alarms_per_patient_day"]:
-            thresholds[str(target)] = select_alarm_threshold(
-                calibration_predictions.loc[
-                    ~calibration_predictions[f"{kind}_currently_active"]
-                ],
-                probability_column=f"{task}_probability",
-                label_column=f"{task}_label",
-                event_id_column=f"{task}_event_id",
-                event_onset_column=f"{task}_event_onset",
-                horizon_minutes=horizon,
-                target_false_alarms_per_day=float(target),
-                candidate_count=int(
-                    config["evaluation"].get("threshold_candidate_count", 2001)
-                ),
-                workers=int(
-                    config["evaluation"].get("alarm_sweep_workers", 1)
-                ),
             )
-        task_summary[task] = {
-            "temperature": temperature,
-            "conformal_nonconformity_threshold": conformal_threshold,
-            "threshold_partition": "calibration",
-            "thresholds_from_calibration": thresholds,
-            "thresholds_from_validation": thresholds,
-        }
+            for predictions in (selection_predictions, calibration_predictions):
+                predictions[f"{task}_probability"] = apply_temperature(
+                    predictions[f"{task}_logit"].to_numpy(dtype=float),
+                    temperature,
+                )
+            conformal_threshold = fit_conformal_threshold(
+                eligible[f"{task}_label"].to_numpy(dtype=int),
+                apply_temperature(
+                    eligible[f"{task}_logit"].to_numpy(dtype=float),
+                    temperature,
+                ),
+                alpha=0.1,
+            )
+            thresholds: dict[str, float] = {}
+            for target in config["evaluation"]["false_alarms_per_patient_day"]:
+                thresholds[str(target)] = select_alarm_threshold(
+                    calibration_predictions.loc[
+                        ~calibration_predictions[f"{kind}_currently_active"]
+                    ],
+                    probability_column=f"{task}_probability",
+                    label_column=f"{task}_label",
+                    event_id_column=f"{task}_event_id",
+                    event_onset_column=f"{task}_event_onset",
+                    horizon_minutes=horizon,
+                    target_false_alarms_per_day=float(target),
+                    candidate_count=int(
+                        config["evaluation"].get("threshold_candidate_count", 2001)
+                    ),
+                    workers=int(
+                        config["evaluation"].get("alarm_sweep_workers", 1)
+                    ),
+                )
+            task_summary[task] = {
+                "temperature": temperature,
+                "conformal_nonconformity_threshold": conformal_threshold,
+                "threshold_partition": "calibration",
+                "thresholds_from_calibration": thresholds,
+                "thresholds_from_validation": thresholds,
+            }
 
-    operational = _calibrate_operational_endpoint(
-        selection_predictions,
-        calibration_predictions,
-        config=config,
-        source_order=source_order,
-    )
+        operational = _calibrate_operational_endpoint(
+            selection_predictions,
+            calibration_predictions,
+            config=config,
+            source_order=source_order,
+        )
 
     predictions = pd.concat(
         (
@@ -1554,6 +1737,7 @@ def run_deep_training(
         "status": (
             "synthetic_architecture_smoke"
             if bool(config["project"].get("synthetic", False))
+            else "development_revision" if revision
             else "development_only_external_untouched"
         ),
         "variant": config["model"]["variant"],
@@ -1565,6 +1749,9 @@ def run_deep_training(
         "training_seed": seed,
         "split_seed": int(config["split"]["seed"]),
         "tasks": task_summary,
+        "revision_contract": revision_contract,
+        "training_targets": target_audit,
+        **input_contract,
     }
     write_json(model_summary, run_dir / "model_summary.json")
     write_json(operational, run_dir / "operational_metrics.json")
@@ -1572,12 +1759,13 @@ def run_deep_training(
         checkpoint["selection_operational_proxy"],
         run_dir / "selection_operational_proxy.json",
     )
-    metrics = evaluate_predictions(
+    reporter = revision_reporter if revision else evaluate_predictions
+    metrics = reporter(
         predictions,
         config=config,
         model_summary=model_summary,
     )
-    metrics["operational_v1_3"] = operational
+    metrics["operational_fixed_frame" if revision else "operational_v1_3"] = operational
     metrics["legacy_pooled_evaluator_reportable"] = False
     write_json(metrics, run_dir / "metrics.json")
     write_json(
@@ -1592,6 +1780,9 @@ def run_deep_training(
             **window_counts,
             "feature_group_dropout_probabilities": dropout_probabilities,
             "external_evaluated": False,
+            "revision_contract": revision_contract,
+            "training_targets": target_audit,
+            **input_contract,
         },
         run_dir / "training_summary.json",
     )
@@ -1668,6 +1859,8 @@ def run_frozen_evaluation(
     run_dir: str | Path,
     partition: str,
 ) -> Path:
+    if config["training"].get("revision_contract") is not None:
+        raise ValueError("revision evaluation requires the fixed-frame runner")
     if partition not in {"external_loop", "stress_hupa_ucm"}:
         raise ValueError(
             "frozen evaluation is limited to external_loop or "
@@ -1717,14 +1910,21 @@ def run_frozen_evaluation(
         * 60
         / int(config["protocol"]["sample_minutes"])
     )
+    device = _device(config)
+    model, summary = _load_frozen_model(output_dir, device=device)
+    trained_mode = str(summary.get("input_feature_mode", "multimodal"))
+    requested_mode = str(config["model"].get("input_feature_mode", trained_mode))
+    if requested_mode != trained_mode:
+        raise ValueError("frozen evaluation input_feature_mode differs from training")
+    if summary.get("revision_contract") is not None:
+        raise ValueError("revision evaluation requires the fixed-frame runner")
     dataset = WindowSequenceDataset(
         frame,
         partition_windows,
         scaler=scaler,
         context_samples=context_samples,
+        input_feature_mode=trained_mode,
     )
-    device = _device(config)
-    model, summary = _load_frozen_model(output_dir, device=device)
     predictions = _predict_dataset(
         model,
         dataset,

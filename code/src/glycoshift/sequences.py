@@ -17,6 +17,53 @@ LOSS_WEIGHT_SUFFIX = "_loss_weight"
 # Kept here rather than imported from `anchor_composition` so this module has no
 # new import edge; the two names are asserted equal by test.
 ANCHOR_COLUMN = "anchor_value"
+REVISION_CONTRACT = "2026-11-04-fixed-frame"
+INPUT_FEATURE_MODES = ("multimodal", "cgm_mask_clock")
+
+
+def validate_input_feature_mode(mode: str) -> str:
+    if mode not in INPUT_FEATURE_MODES:
+        raise ValueError(f"input_feature_mode must be one of {INPUT_FEATURE_MODES}")
+    return mode
+
+
+def training_target_arrays(windows: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Resolve exactly the retained targets and masks for the revision loss.
+
+    Explicit targets must carry explicit boolean masks. Missing outcomes may be
+    present on a prediction timeline, but only a masked missing value is filled
+    with zero for tensor assembly; the original outcome column is never changed.
+    """
+
+    validate_optional_training_masks(windows)
+    targets, masks = [], []
+    for task in TASKS:
+        target_column = f"{task}_training_target"
+        mask_column = f"{task}_training_mask"
+        if target_column in windows and mask_column not in windows:
+            raise ValueError(f"{target_column} requires {mask_column}")
+        column = target_column if target_column in windows else f"{task}_label"
+        values = windows[column].to_numpy(dtype=float)
+        mask = (
+            windows[mask_column].to_numpy(dtype=bool)
+            if mask_column in windows
+            else (
+                ~windows[f"{task.split('_')[0]}_currently_active"].to_numpy(bool)
+                & windows[column].notna().to_numpy()
+            )
+        )
+        invalid = ~np.isfinite(values) | (values < 0) | (values > 1)
+        if (
+            (invalid & mask).any()
+            or ((values < 0) | (values > 1)).any()
+            or (invalid.any() and mask_column not in windows)
+        ):
+            raise ValueError(
+                f"unmasked training targets for {task} must be probabilities"
+            )
+        targets.append(np.where(np.isfinite(values), values, 0.0))
+        masks.append(mask)
+    return np.stack(targets, axis=1).astype(np.float32), np.stack(masks, axis=1)
 
 
 def validate_optional_training_masks(windows: pd.DataFrame) -> None:
@@ -80,6 +127,7 @@ _PARTICIPANT_SEQUENCE_BASE_COLUMNS = (
     "timestamp_local",
     "cgm_mg_dl",
     "cgm_observed",
+    "cgm_interpolated",
     "cgm_lower_censored",
 )
 
@@ -91,17 +139,25 @@ class ParticipantSequenceStore:
     participants: Mapping[tuple[str, str], pd.DataFrame]
 
     @classmethod
-    def from_frame(cls, frame: pd.DataFrame) -> ParticipantSequenceStore:
+    def from_frame(
+        cls, frame: pd.DataFrame, *, input_feature_mode: str = "multimodal"
+    ) -> ParticipantSequenceStore:
+        validate_input_feature_mode(input_feature_mode)
         required = {
             "source_id",
             "participant_id",
             "timestamp",
             "cgm_mg_dl",
-            *(field for field in ACTION_FIELDS),
-            *(f"{field}_available" for field in ACTION_FIELDS),
-            *(f"{field}_observed" for field in ACTION_FIELDS),
-            *(f"{field}_zero_ambiguous" for field in ACTION_FIELDS),
         }
+        if input_feature_mode == "multimodal":
+            required.update(
+                column
+                for field in ACTION_FIELDS
+                for column in (
+                    field, f"{field}_available", f"{field}_observed",
+                    f"{field}_zero_ambiguous",
+                )
+            )
         missing = sorted(required.difference(frame.columns))
         if missing:
             raise ValueError(
@@ -139,6 +195,63 @@ class ParticipantSequenceStore:
         return cls(participants=participants)
 
 
+def revision_anchor_mask(
+    windows: pd.DataFrame, store: ParticipantSequenceStore
+) -> np.ndarray:
+    """Bind window anchors by exact normalized time and validate their provenance.
+
+    The end index is checked against the timestamp join, never used as a finite
+    glucose fallback. Callers may use the returned mask before dataset creation;
+    revision datasets require every retained anchor to pass it.
+    """
+
+    required = {"source_id", "participant_id", "context_end", "participant_end_index"}
+    missing = sorted(required.difference(windows.columns))
+    if missing:
+        raise ValueError(f"revision windows are missing anchor columns: {missing}")
+    eligible = np.zeros(len(windows), dtype=bool)
+    provenance = ("cgm_observed", "cgm_interpolated", "cgm_lower_censored")
+    for (source, participant), positions in windows.groupby(
+        ["source_id", "participant_id"], sort=False, observed=True
+    ).indices.items():
+        key = (str(source), str(participant))
+        if key not in store.participants:
+            raise ValueError(f"revision anchor participant is missing: {key}")
+        frame = store.participants[key]
+        for column in provenance:
+            if column not in frame:
+                raise ValueError(
+                    f"revision anchors require provenance column {column}"
+                )
+            if frame[column].isna().any() or frame[column].dtype != bool:
+                raise ValueError(
+                    f"revision anchor provenance {column} must be null-free boolean"
+                )
+        timestamps = pd.DatetimeIndex(pd.to_datetime(frame["timestamp"], utc=True))
+        if timestamps.hasnans or timestamps.has_duplicates:
+            raise ValueError("revision anchor timestamps must be unique and non-null")
+        rows = windows.iloc[positions]
+        ends = pd.DatetimeIndex(pd.to_datetime(rows["context_end"], utc=True))
+        indices = timestamps.get_indexer(ends)
+        if np.any(indices < 0):
+            raise ValueError("revision context_end has no exact participant timestamp")
+        supplied = pd.to_numeric(
+            rows["participant_end_index"], errors="coerce"
+        ).to_numpy()
+        if not np.array_equal(supplied, indices):
+            raise ValueError(
+                "revision participant_end_index conflicts with context_end"
+            )
+        anchors = frame.iloc[indices]
+        eligible[positions] = (
+            anchors["cgm_observed"].to_numpy(bool)
+            & ~anchors["cgm_interpolated"].to_numpy(bool)
+            & ~anchors["cgm_lower_censored"].to_numpy(bool)
+            & np.isfinite(anchors["cgm_mg_dl"].to_numpy(float))
+        )
+    return eligible
+
+
 @dataclass(frozen=True)
 class ScaleValue:
     mean: float
@@ -154,7 +267,10 @@ class SequenceScaler:
         cls,
         frame: pd.DataFrame,
         participant_keys: set[tuple[str, str]],
+        *,
+        input_feature_mode: str = "multimodal",
     ) -> SequenceScaler:
+        validate_input_feature_mode(input_feature_mode)
         keys = list(
             zip(  # noqa: B905
                 frame["source_id"].astype(str),
@@ -176,6 +292,9 @@ class SequenceScaler:
         ).dropna()
         values["cgm_mg_dl"] = _scale_value(cgm)
         for field in ACTION_FIELDS:
+            if input_feature_mode == "cgm_mask_clock":
+                values[field] = ScaleValue(mean=0.0, std=1.0)
+                continue
             observed = selected[f"{field}_observed"].astype(bool)
             numeric = pd.to_numeric(
                 selected.loc[observed, field],
@@ -225,12 +344,24 @@ def sample_training_windows(
     *,
     negative_ratio: float,
     seed: int,
+    use_training_targets: bool = False,
 ) -> pd.DataFrame:
     if windows.empty:
         raise ValueError("cannot sample an empty window table")
     rng = np.random.default_rng(seed)
     output: list[pd.DataFrame] = []
-    positive_mask = windows[[f"{task}_label" for task in TASKS]].fillna(0).any(axis=1)
+    if use_training_targets:
+        positive, usable = training_window_sampling_masks(windows)
+        positive_mask = pd.Series(positive, index=windows.index)
+        windows = windows.loc[usable]
+        if windows.empty:
+            raise ValueError(
+                "no training windows have a usable classification or regression target"
+            )
+    else:
+        positive_mask = (
+            windows[[f"{task}_label" for task in TASKS]].fillna(0).any(axis=1)
+        )
     for _, source_frame in windows.groupby(
         "source_id",
         sort=True,
@@ -268,6 +399,26 @@ def sample_training_windows(
     return sampled.sort_index().reset_index(drop=True)
 
 
+def training_window_sampling_masks(
+    windows: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return revision positives and windows that can contribute any loss."""
+
+    targets, masks = training_target_arrays(windows)
+    positive = ((targets == 1.0) & masks).any(axis=1)
+    usable = masks.any(axis=1)
+    for horizon in REGRESSION_HORIZONS:
+        target = f"cgm_{horizon}_target"
+        available = f"{target}_available"
+        values = windows[target].to_numpy(float)
+        declared = (
+            windows[available].to_numpy(bool)
+            if available in windows else np.ones(len(windows), dtype=bool)
+        )
+        usable |= np.isfinite(values) & declared
+    return positive, usable
+
+
 class WindowSequenceDataset(Dataset[dict[str, Any]]):
     def __init__(
         self,
@@ -279,7 +430,13 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
         source_to_index: dict[str, int] | None = None,
         participant_store: ParticipantSequenceStore | None = None,
         copy_windows: bool = True,
+        input_feature_mode: str = "multimodal",
+        revision_contract: str | None = None,
     ) -> None:
+        self.input_feature_mode = validate_input_feature_mode(input_feature_mode)
+        if revision_contract not in (None, REVISION_CONTRACT):
+            raise ValueError(f"unsupported revision_contract: {revision_contract}")
+        self.revision_contract = revision_contract
         if windows.empty:
             raise ValueError("sequence dataset requires at least one window")
         if copy_windows:
@@ -293,6 +450,9 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
             self.windows["sampling_weight"] = 1.0
         validate_optional_training_masks(self.windows)
         validate_optional_loss_weights(self.windows)
+        self._revision_training_arrays = (
+            training_target_arrays(self.windows) if revision_contract else None
+        )
         self._loss_weight_columns: tuple[str | None, ...] = tuple(
             f"{task}{LOSS_WEIGHT_SUFFIX}"
             if f"{task}{LOSS_WEIGHT_SUFFIX}" in self.windows.columns
@@ -319,7 +479,7 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
             source: index for index, source in enumerate(sources)
         }
         resolved_store = participant_store or ParticipantSequenceStore.from_frame(
-            frame
+            frame, input_feature_mode=self.input_feature_mode
         )
         required_participants = {
             (str(row.source_id), str(row.participant_id))
@@ -337,6 +497,12 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
             )
         self.participant_store = resolved_store
         self._participants = resolved_store.participants
+        if revision_contract and not revision_anchor_mask(
+            self.windows, resolved_store
+        ).all():
+            raise ValueError(
+                "revision windows require observed noninterpolated uncensored anchors"
+            )
 
     def __len__(self) -> int:
         return len(self.windows)
@@ -374,6 +540,8 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
             ],
             dtype=np.float32,
         )
+        if self._revision_training_arrays is not None:
+            training_labels = self._revision_training_arrays[0][index].copy()
         if not np.isfinite(training_labels).all() or np.any(
             (training_labels < 0) | (training_labels > 1)
         ):
@@ -391,6 +559,8 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
             ],
             dtype=bool,
         )
+        if self._revision_training_arrays is not None:
+            label_mask = self._revision_training_arrays[1][index].copy()
         regression_available = np.array(
             [
                 bool(
@@ -475,6 +645,9 @@ class WindowSequenceDataset(Dataset[dict[str, Any]]):
         features.extend((cgm_value, cgm_observed.astype(float)))
 
         for field in ACTION_FIELDS:
+            if self.input_feature_mode == "cgm_mask_clock":
+                features.extend(np.zeros(len(context)) for _ in range(5))
+                continue
             observed = context[f"{field}_observed"].to_numpy(dtype=bool)
             raw = context[field].to_numpy(dtype=float)
             filled = np.where(observed, raw, self.scaler.values[field].mean)

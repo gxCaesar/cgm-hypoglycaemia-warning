@@ -63,6 +63,7 @@ def _more_panels(axes, cells, floor, control_key, member_key, pair_key,
     arms = ((control_key, "Control", "rose", ""),
             (member_key, "LSTM", "blue", "///"),
             (pair_key, "Composition", "olive", "..."))
+    markers = {control_key: "s", member_key: "o", pair_key: "D"}
     horizons = ("30", "60")
 
     # c: the whole matrix against the floor, not just the cell the paper reports.
@@ -74,14 +75,14 @@ def _more_panels(axes, cells, floor, control_key, member_key, pair_key,
     for index, (value, key) in enumerate(honest):
         hue = (G.NOMINAL["olive"] if key == pair_key
                else G.NOMINAL["rose"] if key == control_key else G.NEUTRAL)
-        ax_c.plot([value], [index], marker="o", markersize=2.0,
+        ax_c.plot([value], [index], marker=markers.get(key, "o"), markersize=2.0,
                   markerfacecolor=hue if key in (pair_key, control_key) else "none",
                   markeredgecolor=hue, markeredgewidth=0.6, zorder=3)
     ax_c.axvline(floor, color=G.INK, lw=0.6, ls=(0, (2.2, 1.6)), zorder=2)
     ax_c.set_yticks([])
     ax_c.set_xlim(0.0, 1.0)
     ax_c.set_ylabel(f"{len(honest)} cells (controls excluded)")
-    ax_c.set_xlabel("Primary endpoint")
+    ax_c.set_xlabel("Primary sensitivity")
     # A long diagonal leader across the panel is worse than no leader at all.
     # The cells rise left to right, so the empty corner is the lower right.
     ax_c.text(0.97, len(honest) * 0.13, f"{above} of {len(honest)}\nclear the floor",
@@ -96,7 +97,7 @@ def _more_panels(axes, cells, floor, control_key, member_key, pair_key,
         for key, _label, hue, _hatch in arms[:2]:
             other = cells[key]["30"]["per_source"][source][
                 "participant_macro_event_sensitivity"]
-            ax_e.plot([base - other], [index], marker="o" if hue == "rose" else "s",
+            ax_e.plot([base - other], [index], marker=markers[key],
                       markersize=2.2, markerfacecolor=G.NOMINAL[hue],
                       markeredgecolor=G.NOMINAL[hue], zorder=3)
     ax_e.axvline(0.0, color=G.INK, lw=0.6, ls=(0, (2.2, 1.6)), zorder=2)
@@ -104,7 +105,7 @@ def _more_panels(axes, cells, floor, control_key, member_key, pair_key,
     ax_e.set_yticklabels([s.replace("Shanghai T1DM", "Shanghai") for s in order],
                          fontsize=5.0)
     ax_e.set_ylim(-0.6, len(order) - 0.4)
-    ax_e.set_xlabel("Composition minus member,\n30 min")
+    ax_e.set_xlabel("Composition minus constituent\n(30 min)")
 
     # g, h, i, j: what it costs and what it buys.
     width = 0.26
@@ -120,15 +121,16 @@ def _more_panels(axes, cells, floor, control_key, member_key, pair_key,
                  color=G.NOMINAL[hue], hatch=hatch or None, edgecolor=G.INK,
                  linewidth=0.35, zorder=3)
         ax_i.plot([0, 1], [cells[key][h]["sensitivity"] for h in horizons],
-                  color=G.NOMINAL[hue], lw=0.9, marker="o", markersize=2.6, zorder=3)
-    for axis, ylabel in ((ax_g, "Alarms charged (thousands)"),
+                  color=G.NOMINAL[hue], lw=0.9, marker=markers[key],
+                  markersize=2.6, zorder=3)
+    for axis, ylabel in ((ax_g, "Surviving alarms (thousands)"),
                          (ax_h, "Events detected"),
                          (ax_j, "Achieved false alarms per\nparticipant-day")):
         axis.set_xticks(range(len(horizons)))
         axis.set_xticklabels([f"{h} min" for h in horizons], fontsize=5.0)
         axis.set_ylabel(ylabel)
     ax_j.axhline(0.5, color=G.INK, lw=0.6, ls=(0, (2.2, 1.6)), zorder=4)
-    ax_g.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3, fontsize=5.0,
+    ax_g.legend(loc="lower center", bbox_to_anchor=(0.5, 1.065), ncol=3, fontsize=5.0,
                 handlelength=0.9, handleheight=0.9, columnspacing=0.6,
                 borderaxespad=0.1, labelspacing=0.15)
     ax_i.set_xlim(-0.2, 1.2)
@@ -241,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     ax_a.set_yticklabels([n for n, *_ in ladder], fontsize=5.4)
     ax_a.set_ylim(-0.6, len(ladder) - 0.2)
     ax_a.set_xlim(0.66, 1.0)
-    ax_a.set_xlabel("Level 2 event sensitivity, scored partition")
+    ax_a.set_xlabel("Primary sensitivity")
 
     # ---- b: is it one lucky pair, or the construction? ------------------------------
     limits = (0.0, 1.0)
@@ -256,8 +258,8 @@ def main(argv: list[str] | None = None) -> int:
                   markeredgewidth=0.8, linestyle="none", zorder=3)
     ax_b.set_xlim(*limits)
     ax_b.set_ylim(*limits)
-    ax_b.set_xlabel("The arm alone")
-    ax_b.set_ylabel("Paired with the control")
+    ax_b.set_xlabel("Arm primary sensitivity")
+    ax_b.set_ylabel("Paired primary sensitivity")
     ax_b.legend(handles=[
         plt.Line2D([], [], marker="o", ms=3.0, ls="none", color=G.NOMINAL["olive"],
                    label="a trained arm"),
@@ -290,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     ax_d.set_yticklabels([SOURCE_LABEL.get(s, s) for s in order], fontsize=5.2)
     ax_d.set_ylim(-0.7, len(order) - 0.3)
     ax_d.set_xlim(0.0, 1.02)
-    ax_d.set_xlabel("Event sensitivity, 30 minutes")
+    ax_d.set_xlabel("Event sensitivity, 30 min")
     ax_d.legend(loc="lower left", fontsize=5.0, handlelength=1.0, borderaxespad=0.3,
                 labelspacing=0.3)
 
@@ -311,7 +313,14 @@ def main(argv: list[str] | None = None) -> int:
     _more_panels((ax_c, ax_e, ax_g, ax_h, ax_i, ax_j), cells, floor,
                  CONTROL, MEMBER, PAIR, DEGENERATE, external)
 
-    for axis in (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f, ax_g, ax_h, ax_i, ax_j):
+    order = (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f, ax_g, ax_h, ax_i, ax_j)
+    titles = (
+        "Seed variability", "Control pairings", "Ordered values", "Cohort sensitivity",
+        "Cohort contrasts", "External transfer", "Alarm burden", "Matched events",
+        "Horizon sensitivity", "False-alarm rate",
+    )
+    for axis, title in zip(order, titles, strict=True):
+        axis.set_title(title, loc="left", fontsize=6.0, pad=3)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.set_axisbelow(True)

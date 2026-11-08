@@ -33,17 +33,17 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 FROZEN = 0.5
 FAPD_MAX = 2.0
-# stem -> (family label, palette key, dash)
+# stem -> (family label, palette key, dash, marker)
 ARMS = {
-    "erm_lstm_seed17": ("LSTM, ERM", "blue", "-"),
-    "erm_tcn_seed17": ("TCN, ERM", "rose", "-"),
-    "erm_patchtst_seed17": ("Patch transformer", "teal", "-"),
-    "tls_lstm_seed17": ("Tail-loss shaping", None, "-"),
-    "dro_tau_0p5_lstm_seed17": (r"GroupDRO $\tau$ 0.5", "olive", "-"),
-    "dro_tau_1p0_lstm_seed17": (r"GroupDRO $\tau$ 1.0", "olive", "--"),
-    "dro_tau_2p0_lstm_seed17": (r"GroupDRO $\tau$ 2.0", "olive", (0, (1.2, 1.2))),
-    "erm_nomemory_glycoshift_seed17": ("Memory transf., seed 17", "amber", "-"),
-    "erm_nomemory_glycoshift_seed23": ("Memory transf., seed 23", "amber", "--"),
+    "erm_lstm_seed17": ("LSTM, ERM", "blue", "-", "o"),
+    "erm_tcn_seed17": ("TCN, ERM", "amber", "--", "^"),
+    "erm_patchtst_seed17": ("Patch transformer", "rose", "-.", "D"),
+    "tls_lstm_seed17": ("Tail-loss shaping", None, ":", "x"),
+    "dro_tau_0p5_lstm_seed17": (r"GroupDRO $\tau$ 0.5", "olive", "-", "s"),
+    "dro_tau_1p0_lstm_seed17": (r"GroupDRO $\tau$ 1.0", "olive", "--", "s"),
+    "dro_tau_2p0_lstm_seed17": (r"GroupDRO $\tau$ 2.0", "olive", (0, (1.2, 1.2)), "s"),
+    "erm_nomemory_glycoshift_seed17": ("Memory transf., seed 17", "teal", "-", "v"),
+    "erm_nomemory_glycoshift_seed23": ("Memory transf., seed 23", "teal", "--", "v"),
 }
 SEED_DASH = ("-", "--", "-.", (0, (1.2, 1.2)))
 
@@ -90,24 +90,27 @@ def main(argv: list[str] | None = None) -> int:
                            wspace=0.30)
 
     for axis, horizon in zip(axes[:2], ("30", "60"), strict=True):
-        for stem, (label, hue, dash) in ARMS.items():
+        for stem, (label, hue, dash, marker) in ARMS.items():
             x, y = frontier(arms[stem], horizon)
             axis.plot(x, y, color=G.NOMINAL[hue] if hue else G.NEUTRAL,
-                      linestyle=dash, linewidth=0.8, zorder=3,
+                      linestyle=dash, linewidth=0.8, marker=marker, markersize=1.8,
+                      markevery=max(len(x) // 10, 1), zorder=3,
                       label=label if horizon == "30" else None)
-        axis.set_title(f"{horizon} minutes", loc="left", fontsize=6.0, pad=3)
+        axis.set_title(f"{horizon}-minute frontiers", loc="left", fontsize=6.0,
+                       fontweight="bold", pad=3)
 
     for stem, dash in zip(sorted(seeds), SEED_DASH, strict=True):
         x, y = frontier(seeds[stem], "30")
-        axes[2].plot(x, y, color=G.NOMINAL["rose"], linestyle=dash, linewidth=0.8,
+        axes[2].plot(x, y, color=G.NOMINAL["amber"], linestyle=dash, linewidth=0.8,
                      zorder=3, label=f"seed {stem.rsplit('seed', 1)[1]}")
-    axes[2].set_title("One configuration, four seeds", loc="left", fontsize=6.0, pad=3)
+    axes[2].set_title("Earlier TCN, four seeds", loc="left", fontsize=6.0,
+                      fontweight="bold", pad=3)
 
     for axis in axes:
         axis.axvline(FROZEN, color=G.INK, lw=0.6, ls=(0, (2.4, 1.6)), zorder=2)
         axis.set_xlim(0.0, FAPD_MAX)
         axis.set_ylim(0.0, 1.0)
-        axis.set_xlabel("Achieved false alarms per participant-day")
+        axis.set_xlabel("Achieved false alarms per\nparticipant-day", linespacing=1.35)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
     axes[0].set_ylabel("Best feasible level 2 event sensitivity")

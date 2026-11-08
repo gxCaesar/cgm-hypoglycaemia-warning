@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "glycoshift"
-version = "0.2.0"
+version = "0.3.0"
 description = "Leakage-controlled cross-source CGM event warning"
 requires-python = ">=3.10,<3.13"
 dependencies = [
@@ -23,7 +23,7 @@ deep = [
   "omegaconf>=2.3",
 ]
 baselines = [
-  "xgboost>=2.0",
+  "xgboost==3.2.0",
 ]
 dev = [
   "pytest>=8",

@@ -85,6 +85,8 @@ def _style() -> None:
             "axes.linewidth": 0.6,
             "lines.linewidth": 1.1,
             "legend.frameon": False,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
         }
     )
 
@@ -173,8 +175,8 @@ def _correction_panels(axes, root: Path, calibration_dir: Path, series):
     ax_e.plot(limits, limits, color=INK, lw=0.5, ls=(0, (2.4, 1.6)), zorder=2)
     ax_e.set_xlim(*limits)
     ax_e.set_ylim(*limits)
-    ax_e.set_xlabel("Before, matched eligibility frame")
-    ax_e.set_ylabel("Primary after recalibration")
+    ax_e.set_xlabel("Before (matched frame)")
+    ax_e.set_ylabel("Primary sensitivity\nafter recalibration", linespacing=1.4)
     ax_e.legend(handles=[
         plt.Line2D([], [], marker=m, ms=2.6, lw=0, markerfacecolor="none",
                    markeredgecolor=_G.NOMINAL[h], label=lab)
@@ -203,8 +205,8 @@ def _correction_panels(axes, root: Path, calibration_dir: Path, series):
         ax_f.axhline(base[stem], color=_G.NOMINAL[hue], lw=0.5, ls=(0, (2.2, 1.6)),
                      zorder=2)
     ax_f.set_xticks(counts)
-    ax_f.set_xlabel("Glucose bands the map is fitted in")
-    ax_f.set_ylabel("Primary, restricted frame")
+    ax_f.set_xlabel("Recalibration bands")
+    ax_f.set_ylabel("Primary sensitivity\n≥70 mg/dL", linespacing=1.4)
 
     # g: the state-conditional family, which does not merely fail but destroys the arm.
     kinds = ("level_full", "level_eugly", "slope_full", "slope_eugly")
@@ -224,9 +226,10 @@ def _correction_panels(axes, root: Path, calibration_dir: Path, series):
                       color=_G.NOMINAL[hue], lw=1.0, zorder=2)
     ax_g.set_xticks(range(len(kinds)))
     ax_g.set_xticklabels(["level\nall", "level\n≥70", "slope\nall", "slope\n≥70"], fontsize=5.0)
+    plt.setp(ax_g.get_xticklabels(), linespacing=1.4)
     ax_g.set_xlim(-0.6, len(kinds) - 0.4)
     ax_g.set_ylim(0.0, 0.86)
-    ax_g.set_ylabel("Primary, matched frame")
+    ax_g.set_ylabel("Primary sensitivity")
 
     # h: what the parametric fit learned, which is a glucose term.
     labels, betas = [], []
@@ -249,7 +252,9 @@ def _correction_panels(axes, root: Path, calibration_dir: Path, series):
     ax_h.axhline(0.0, color=INK, lw=0.6, zorder=2)
     ax_h.set_xticks(range(len(labels)))
     ax_h.set_xticklabels(labels, fontsize=5.0)
-    ax_h.set_ylabel("Squared log-glucose\ncoefficient")
+    plt.setp(ax_h.get_xticklabels(), linespacing=1.4)
+    ax_h.set_xlabel("Horizon (min)")
+    ax_h.set_ylabel("Squared log-glucose\ncoefficient", linespacing=1.4)
 
     # i: the support a band-conditional map is fitted on.
     rows = series[0][1]
@@ -263,9 +268,9 @@ def _correction_panels(axes, root: Path, calibration_dir: Path, series):
                   textcoords="offset points", xytext=(-2.0, 4.5), ha="right",
                   color=INK, zorder=4)
     ax_i.set_xticks(range(len(rows)))
-    ax_i.set_xticklabels(_band_labels(rows), rotation=40, ha="right", fontsize=5.0)
+    ax_i.set_xticklabels(_band_labels(rows), rotation=60, ha="right", fontsize=5.0)
     ax_i.set_ylabel("Positive windows (60 min)")
-    ax_i.set_xlabel("Current glucose band (mg/dL)")
+    ax_i.set_xlabel("Glucose band (mg/dL)")
 
     # j: the shape of the miscalibration, as a slope and an expected error.
     arms = (("persistence_seed17", "Control", "rose", "s"),
@@ -281,17 +286,24 @@ def _correction_panels(axes, root: Path, calibration_dir: Path, series):
                       marker=mark, markersize=3.0,
                       markerfacecolor=_G.NOMINAL[hue] if horizon == "30" else "white",
                       markeredgecolor=_G.NOMINAL[hue], markeredgewidth=0.7, zorder=3)
+            top_label = index == 0 and horizon == "30"
             ax_j.annotate(f"{float(block[horizon]['calibration_slope']):.2f}",
                           (index + offset,
                            float(block[horizon]["calibration_slope"])),
-                          fontsize=5.0, textcoords="offset points", xytext=(0, 4.0),
-                          ha="center", color=INK, zorder=4)
+                          fontsize=5.0, textcoords="offset points",
+                          xytext=(0, -5.0 if top_label else 4.0),
+                          ha="center", va="top" if top_label else "bottom",
+                          color=INK, zorder=4)
     ax_j.axhline(1.0, color=INK, lw=0.6, ls=(0, (2.2, 1.6)), zorder=2)
     ax_j.set_xticks(range(len(arms)))
     ax_j.set_xticklabels([lab for _s, lab, *_ in arms], fontsize=5.0)
     ax_j.set_xlim(-0.6, len(arms) - 0.4)
     ax_j.set_ylabel("Calibration slope")
-    ax_j.set_xlabel("Filled, 30 minutes; open, 60")
+    ax_j.set_xlabel("Filled 30 min; open 60 min")
+    titles = ("Conditional recalibration", "Isotonic band count", "State-conditional",
+              "Glucose coefficients", "Positive windows", "Calibration slope")
+    for axis, title in zip(axes, titles, strict=True):
+        axis.set_title(title, loc="left", fontsize=6.5, fontweight="bold", pad=5)
     # Keep both the diagnosed arm and cross-arm maximum, always within matched frames.
     own = max(g for g, stem in gains if "balanced_lstm" in stem)
     across, across_stem = max(gains)
@@ -337,9 +349,9 @@ def main(argv: list[str] | None = None) -> int:
         figure.add_axes([0.095, 0.318, 0.235, 0.170]),
         figure.add_axes([0.470, 0.318, 0.185, 0.170]),
         figure.add_axes([0.790, 0.318, 0.185, 0.170]),
-        figure.add_axes([0.095, 0.070, 0.185, 0.172]),
-        figure.add_axes([0.415, 0.070, 0.185, 0.172]),
-        figure.add_axes([0.735, 0.070, 0.240, 0.172]),
+        figure.add_axes([0.095, 0.085, 0.185, 0.157]),
+        figure.add_axes([0.415, 0.085, 0.185, 0.157]),
+        figure.add_axes([0.735, 0.085, 0.240, 0.157]),
     ]
 
     for row_index, horizon in enumerate(("30", "60")):
@@ -437,17 +449,17 @@ def _draw(left, right, series, horizon: str, row_index: int) -> None:
         axis.axhline(1.0, color=INK, linewidth=0.5, linestyle=":")
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
-    left.set_ylabel(f"{horizon} min\nPredicted / observed")
-    right.set_ylabel(f"{horizon} min\nAUPRC vs glucose-only")
+    left.set_ylabel(f"{horizon} min\nPredicted / observed", linespacing=1.4)
+    right.set_ylabel(f"{horizon} min\nAUPRC / glucose-only", linespacing=1.4)
     if row_index == 0:
-        left.set_title("Calibration: over-prediction", loc="left",
-                       fontweight="bold", pad=17)
-        right.set_title("Ranking: within-band lift", loc="left",
-                        fontweight="bold", pad=17)
+        left.set_title("Risk over-prediction", loc="left",
+                       fontweight="bold", pad=11)
+        right.set_title("Within-band ranking", loc="left",
+                        fontweight="bold", pad=11)
         right.legend(loc="upper left")
     else:
         for axis in (left, right):
-            axis.set_xlabel("Current glucose band at the decision, mg/dL")
+            axis.set_xlabel("Current glucose band (mg/dL)")
 
 
 if __name__ == "__main__":

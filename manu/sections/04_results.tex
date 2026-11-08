@@ -11,107 +11,90 @@ Colour encodes glucose and ticks mark readings below 54~mg/dL. Traces are centre
 The empty carbohydrate lane indicates no recorded values. Action lanes use recorded timestamps and are scaled to their own maxima.
 \textbf{c}, Corresponding BrisT1D view, including steps and heart rate.
 \textbf{d}, Glucose densities, with eight cohorts in grey and three highlighted alongside their percentages below 70~mg/dL.
-\textbf{e}, Cumulative percentages below each glucose value, with 54--61~mg/dL shaded.
-\textbf{f}, Percentage of readings below 54~mg/dL by hour. Midnight to 06:00 is shaded. The pooled overnight rate is 1.22 times the daytime rate.
+\textbf{e}, Cumulative percentages below each glucose value, with 54--70~mg/dL shaded.
+\textbf{f}, Percentage of readings below 54~mg/dL by recorded clock hour. The 00:00--06:00 interval is shaded. Its pooled fraction below 54~mg/dL is 1.22 times that during the remaining hours. Recorded clock time does not establish physiological sleep or a verified local timezone for every source.
 \textbf{g}, Percentage of enrolled participants with any recorded value for each channel. Hatching denotes partial coverage, present in five source--channel cells. Coverage otherwise equals zero or 100\%, closely tracking cohort identity.
-\textbf{h}, Insulin delivery modality by recorded row.
-\textbf{i}, Sex composition by participant. Hatching identifies unrecorded categories. Two cohorts record no sex.
-\textbf{j}, Median age with interquartile ranges, in the row order of \textbf{h}. Cohort medians range from 4 to 65 years.
-\textbf{k}, Person-days and distinct level 2 events in the eligible modelling cohort, on logarithmic axes.}
+\textbf{h}, Fixed participant-calendar-day exposure and base level 2 events at 60 minutes across all three development partitions, on logarithmic axes.
+\textbf{i}, Recorded insulin-delivery modality by row. AID denotes automated insulin delivery, SAP sensor-augmented pump therapy and MDI multiple daily injections.
+\textbf{j}, Sex composition by participant. Hatching identifies unrecorded categories. Two cohorts record no sex.
+\textbf{k}, Median age with interquartile ranges, in the row order of \textbf{i}. Cohort medians range from 4 to 65 years.}
 \label{fig:cohort_data}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_landscape.pdf}
-\caption{Eighteen evaluated arms on the frozen unrestricted selection frame.
-Sensitivity averages event-positive participants within source, then sources equally. The primary endpoint averages the 30- and 60-minute sensitivities.
-\textbf{a}, Primary sensitivities at a nominal 0.5 false alarms per participant-day. Open markers identify nine historical fits selected using window-level area under the precision--recall curve (AUPRC) and diagnostically rescored. Filled markers identify fits selected using the budget-frontier proxy. The GroupDRO temperature sweep uses a softmax objective. The control is highlighted and oracle references are dashed.
-\textbf{b}, Gap between the control and perfect window ranking, partitioned into the portion recoverable by a perfect glucose forecast and the remainder.
-\textbf{c}, Total refractory-surviving alarms at 30 minutes for the control, strongest trained arm and two oracles.
-\textbf{d}, Horizon-specific sensitivities. Six arms rise, ten fall and two constant-score controls remain at zero. Among the five leading arms, only the control rises at 60 minutes.
-\textbf{e}, Achieved false-alarm rates averaged over horizons for arms that trigger alarms, against the nominal calibration budget.
-\textbf{f}, Thirty-minute sensitivity against alarm counts, including horizon-matched oracle values.
-\textbf{g}, Primary endpoint by method family, with descriptive ranges and the control dashed.
-\textbf{h}, Individual primary values and group means by checkpoint proxy.
-\textbf{i}, Ranks at the two horizons.
-\textbf{j}, Available fits per arm. Fourteen arms have one fit, including untrained rules without training-seed variation.}
+\caption{Event warning performance under the base eligibility rule.
+All six arms use the same selection participants, base events and exposure, with thresholds fitted on calibration data at a nominal 0.5 unmatched alarms per participant-calendar day.
+\textbf{a}, Sensitivity averaged equally over sources and the two horizons. Each source averages event-positive participants. Small points show the five individual LSTM or TCN fits, with their means shown by larger markers. Each classical arm has one fit or deterministic rule.
+\textbf{b}, Achieved unmatched-alarm burden, including participants without events. The dotted line marks the nominal calibration budget.
+\textbf{c}, Sensitivity at 30 and 60 minutes.
+\textbf{d}, Alarm positive predictive value (PPV), calculated as one-to-one matched alarms divided by evaluable delivered alarms within each condition, then averaged over horizons and model seeds where applicable.
+\textbf{e}, Source-specific sensitivity, averaged over horizons and model seeds. Labels give the number of event-positive participants, which is identical at both horizons.
+\textbf{f}, Fraction of base events detected with at least 5, 10, 15 or 20 minutes of warning, pooled over events within each condition and then averaged over horizons and model seeds.
+Model-seed variation describes optimisation on one fixed split, not participant sampling uncertainty.}
 \label{fig:landscape}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_eligibility.pdf}
-\caption{Aggregate ranking reversal under decision-eligibility restriction without model retraining.
-The primary endpoint averages participant-macro level 2 event sensitivity equally over sources and the 30- and 60-minute horizons.
-\textbf{a}, Primary sensitivity as the minimum current-glucose cut-off increases from 54 to 70~mg/dL. Thresholds are refitted on calibration data within each restriction. Cut-offs at 80~mg/dL and above leave no event-positive selection participant in the smallest source.
-\textbf{b}, Seven arms at 70~mg/dL, including four historical diagnostic fits.
-\textbf{c}, \textbf{d}, Horizon-averaged per-cohort contrasts for control minus TCN on the unrestricted frame and balanced LSTM minus control at 70~mg/dL, respectively. Shading gives the overall 95\% percentile interval from 10{,}000 paired source resamples with within-source participant means fixed. Parentheses give scored selection participants. Open markers identify cohorts with fewer than five. These intervals describe source-composition variation, not participant-level uncertainty.
-\textbf{e}, Within-band Spearman rank correlations between the 30-minute current-glucose control score and each deep comparator's score, with the critical alarm band shaded.
-\textbf{f}, Event-pooled fraction with a non-active-event decision at glucose $\geq70$~mg/dL in the preceding 30 minutes. This diagnostic pools retained calibration and selection predictions and excludes events without any non-active-event lead-in. It is not the participant-macro primary estimand.
-\textbf{g}, \textbf{h}, Matched events and refractory-surviving alarms at 30 minutes for the 54 and 60~mg/dL cut-offs.
-\textbf{i}, \textbf{j}, Per-cohort 30-minute sensitivities at the 54 and 70~mg/dL cut-offs for the control (\textbf{i}) and balanced LSTM (\textbf{j}).}
+\caption{Glucose eligibility changes the fixed LSTM-versus-current-glucose comparison.
+The base event catalogues and exposure denominators are held fixed across all cuts.
+\textbf{a}, \textbf{b}, Equal-source, equal-horizon sensitivity and achieved unmatched-alarm burden with thresholds refitted on calibration data at each eligibility cut. LSTM curves average five fits.
+\textbf{c}, Fraction of base events retaining an evaluable decision within the permitted glucose range at each horizon.
+\textbf{d}, Proportion of base evaluable decisions that remain eligible at each cut, which is shared by the two horizons.
+\textbf{e}, \textbf{f}, LSTM-minus-control contrasts at 54 and 70~mg/dL, and the change between those contrasts, for sensitivity and alarm burden. Points are estimates and bars are 95\% percentile confidence intervals from 1{,}000 shared, source-stratified participant bootstrap samples. Sensitivity includes event-positive participants, stratified by horizon-specific positivity pattern. Burden includes all base participants. Horizons and model fits are averaged within each sample, not treated as independent participants.
+\textbf{g}, \textbf{h}, Source-specific sensitivity contrasts at 54 and 70~mg/dL, plotted on the same horizontal scale with event-positive participant counts shown in the row labels.
+\textbf{i}, \textbf{j}, Calibration-refitted and gate-only sensitivity for LSTM and the current-glucose control. Gate-only policies retain the base calibration threshold.
+All results use the same base events and describe retrospective warning performance.}
 \label{fig:eligibility}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_mechanism.pdf}
-\caption{Warning lead times, threshold crossings and refractory alarm collapse.
-\textbf{a}, Lead-time difference (LSTM minus control, in minutes, with positive values indicating earlier LSTM warnings) for 2{,}375 level 2 events matched by both the seed-17 balanced LSTM and current-glucose control at 60 minutes under the frozen unrestricted policy. The histogram separates earlier, tied and later LSTM warnings.
-\textbf{b}--\textbf{d}, Pre-registered exemplars at the 10th, 50th and 90th percentiles of lead-time difference. Squares denote control alarms and filled circles denote LSTM alarms. Outer rings identify alarms matched to onset. The 10th-percentile example is a tie.
-\textbf{e}, Five-minute threshold-positive windows per participant, before refractory filtering, at the frozen 30-minute thresholds across 153 selection participants. Filled markers show medians. Open markers show ninetieth percentiles and maxima on a logarithmic axis.
-\textbf{f}, Median warning lead time among each arm's own matched events. Filled and open markers denote the 30- and 60-minute horizons, respectively.
-\textbf{g}, \textbf{h}, Ratio of threshold-positive windows to alarms surviving the 30-minute refractory rule, against surviving alarm counts at the 30- and 60-minute horizons. Ratios increase across nine score quantiles for the control and TCN.
-\textbf{i}, \textbf{j}, Distinct events preceded by at least one threshold-positive window against surviving alarm counts for the same sweeps. These event-touch counts precede one-to-one alarm--event matching and are distinct from primary-endpoint detections.}
+\caption{Warning lead time, glucose at alarm and complete alarm accounting under base eligibility.
+All panels use the fixed selection population and a nominal calibration budget of 0.5 unmatched alarms per participant-calendar day.
+\textbf{a}, \textbf{b}, Percentage of base events detected with at least 5, 10, 15 or 20 minutes of warning at the 30-minute and 60-minute horizons.
+\textbf{c}, \textbf{d}, Mean and median lead times among matched events, shown separately for each horizon. Filled and open markers distinguish the two statistics.
+\textbf{e}, \textbf{f}, Median glucose at matched and unmatched evaluable alarms, using filled and open markers, respectively.
+\textbf{g}, \textbf{h}, All emitted alarms after refractory suppression, partitioned into matched, unmatched and unevaluable emissions. Unevaluable emissions are reported separately rather than classified as unmatched alarms.
+Large marks and bars average the per-fit quantities over the five LSTM or TCN seeds. Small marks retain the individual neural fits. Each classical arm contributes one fit or deterministic rule. Averages of per-fit medians are not medians of a pooled distribution. Lead times condition on detection, whereas event coverage retains missed events in its denominator.}
 \label{fig:mechanism}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
 \includegraphics{figures/fig_calibration_diagnosis.pdf}
-\caption{Within-band discrimination, risk over-prediction and retrospective recalibration diagnostics.
-Primary sensitivity averages participant-macro level 2 event sensitivity equally over sources and horizons.
-\textbf{a}, \textbf{c}, Mean predicted risk divided by positive-window frequency at 30 and 60 minutes across $5{,}836{,}543$ selection decisions at glucose $\geq70$~mg/dL. Dotted lines mark ideal calibration.
-\textbf{b}, \textbf{d}, Within-band window average precision (AUPRC) relative to current glucose alone, with parity dotted. Positive-window counts above the panels decline from $8{,}411$ to $25$ at 30 minutes and from $17{,}268$ to $633$ at 60 minutes.
-\textbf{e}, Sensitivity after conditional recalibration versus the same arm's baseline on the same eligibility frame. State-conditional cells include unrestricted and $\geq70$~mg/dL frames. Isotonic and parametric cells use the restricted frame. The diagonal marks no change.
-\textbf{f}, Restricted-frame isotonic recalibration by band count. Dashed lines mark uncorrected values. The single-band positive control is available for the LSTM.
-\textbf{g}, State-conditional recalibration using glucose level or slope. Short horizontal segments mark frame-matched baselines. The labels all and $\geq70$ identify the decision frames.
-\textbf{h}, Coefficients of squared standardized log-glucose, by arm and horizon. Covariate scaling pools retained calibration and selection inputs. Regression coefficients use calibration labels.
-\textbf{i}, Positive 60-minute windows by glucose band, with $633$ in the highest band. Multiple windows can precede one event.
-\textbf{j}, Logistic calibration slopes on the unrestricted selection frame. Filled markers denote 30 minutes and open markers 60 minutes.}
+\caption{Secondary probability and glucose-forecast diagnostics on the selection partition.
+\textbf{a}, Area under the precision--recall curve (AUPRC) for level 2 window labels.
+\textbf{b}, Area under the receiver operating characteristic curve (AUROC).
+\textbf{c}, Continuous-glucose forecast root mean squared error (RMSE).
+\textbf{d}, Brier score for level 2 window labels.
+\textbf{e}, Expected calibration error (ECE).
+\textbf{f}, Continuous-glucose forecast mean absolute error (MAE).
+Filled and open markers denote the 30-minute and 60-minute horizons. Large markers average the five LSTM or TCN fits, with smaller marks showing individual seeds. Each classical arm contributes one fit or deterministic rule. Probability diagnostics use 5{,}872{,}995 retained labelled windows per horizon and temperatures fitted only on calibration participants. Forecast errors use 5{,}900{,}011 windows per horizon. Logistic regression and XGBoost do not produce continuous forecasts and are absent from those panels. Probability errors and discrimination concern window outcomes, not event matching or alarm burden. All glucose errors are in mg/dL.}
 \label{fig:calibration_diagnosis}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
-\includegraphics{figures/fig_forecast.pdf}
-\caption{Forecast-error diagnostics for alarm sensitivity on the selection partition.
-Primary sensitivity averages participant-macro level 2 event sensitivity equally over sources and the 30- and 60-minute horizons.
-\textbf{a}, \textbf{b}, The same primary sensitivities plotted against 30-minute root-mean-square error (RMSE) and 60-minute RMSE, respectively. Interventions shrink predictions toward future truth or add unbiased noise to future truth. These future-informed diagnostics are not deployable predictors. Thresholds are refitted on calibration data. Dashed lines show the current-glucose control. Crosses in \textbf{a} mark interpolated crossings between measured settings.
-\textbf{c}, Published 30-minute RMSE of 6.82~mg/dL from a 12-participant within-subject study\citep{huang2025probsparse}, alongside the two crossings and the present LSTM forecast. The published estimate provides context, not a matched benchmark.
-\textbf{d}, Difference in primary sensitivity between unbiased-noise and shrinkage interventions against 30-minute RMSE.
-\textbf{e}--\textbf{g}, Refractory-surviving alarms, matched events and achieved false-alarm rates along the shrinkage sweep at both horizons. Rates fall below the nominal budget as forecast error approaches zero.
-\textbf{h}, Per-cohort 30-minute sensitivities between the unmodified forecast and zero-error future truth.
-\textbf{i}, Correlation of forecast and observed future glucose with current glucose. Filled markers denote 30 minutes and open markers 60 minutes.
-\textbf{j}, Primary sensitivities of forecast-derived alarms from the balanced LSTM and TCN, with the current-glucose control dashed.}
-\label{fig:forecast}
+\includegraphics{figures/fig_event_sensitivity.pdf}
+\caption{Outcome-definition sensitivity under unchanged emitted alarm sequences.
+\textbf{a}, Base-event counts at 30 minutes, separating onsets shared with the primary catalogue from primary-only and variant-only onsets.
+\textbf{b}, Corresponding counts at 60 minutes.
+\textbf{c}, LSTM-minus-current-glucose sensitivity differences at 30 minutes.
+\textbf{d}, Corresponding differences at 60 minutes.
+\textbf{e}, Unmatched-alarm-burden differences at 30 minutes.
+\textbf{f}, Corresponding differences at 60 minutes.
+The observed-only definition excludes interpolated, unobserved and censored readings. The strict-boundary definition changes episode merging from at most 30 minutes to less than 30 minutes. Filled and open triangles denote glucose eligibility thresholds of 54 and 70~mg/dL. Small triangles show five LSTM seeds against the shared control, and large triangles show their mean. All definitions retain 153 participants for burden. The primary and strict-boundary catalogues contain 146 event-positive participants, whereas observed-only catalogues contain 144. Shanghai T1DM has no observed-only event, leaving the eleven-source mean sensitivity undefined. Sources are not dropped from that mean. The plots show descriptive seed variation without confidence intervals. All comparisons retain the original alarms, policies, refractory suppression and exposure. Shared-onset counts do not identify one-to-one event shifts or merges.}
+\label{fig:event_sensitivity}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
-\includegraphics{figures/fig_composition.pdf}
-\caption{Calibration-rank composition across seeds, comparator pairings and external evaluation.
-The composition equally averages calibration-rank scores from the current-glucose control and source-balanced LSTM.
-Primary sensitivity averages participant-macro level 2 event sensitivity equally over sources and horizons.
-\textbf{a}, Selection-partition composition values for five LSTM seeds, against the seed-17 LSTM and current-glucose control. The connecting line spans the seed minimum and maximum, not a confidence interval. Open diamonds lie below the dashed promotion floor. Crossing this floor alone does not establish formal promotion.
-\textbf{b}, Each arm paired with the control versus that arm alone. The diagonal denotes no change. Horizontal solid and dashed lines mark the control and promotion floor. All twenty-five non-negative-control pairings improve, sixteen exceed the control and twelve clear the floor. Open triangles show the global constant, per-source constant and label-shuffled logistic controls. Only the global constant reproduces the control alone.
-\textbf{c}, Ordered single-arm and paired values, excluding negative controls.
-\textbf{d}, Per-cohort 30-minute sensitivities for the composition and its two members across eleven development sources.
-\textbf{e}, Composition minus constituent sensitivity at 30 minutes. Gains occur against the control in ten cohorts and against the LSTM in all eleven. The sole deficit is against the control in Shanghai T1DM.
-\textbf{f}, Primary sensitivity on development selection and the external cohort of 843 participants, using one frozen trained seed and the frozen development alarm policy.
-\textbf{g}, \textbf{h}, Refractory-surviving alarms and matched events at both development horizons.
-\textbf{i}, Horizon-specific development sensitivities.
-\textbf{j}, Achieved development false-alarm rates against the nominal 0.5 false alarms per participant-day.}
+\includegraphics[width=\textwidth]{figures/fig_composition.pdf}
+\caption{Fixed calibration-rank composition in development and conditional external evaluation. \textbf{a,b}, Sensitivity and achieved unmatched-alarm burden at 30 and 60 minutes on the development selection partition. Small points show the five long short-term memory (LSTM) fits or compositions and large points show their means, with a shared current-glucose control. \textbf{c,d}, Composition-minus-member sensitivity differences in each development source at 30 and 60 minutes. Labels give event-positive and total participant counts, and marker area increases with the square root of the event-positive count. Small and large marks denote seed-specific differences and their mean. \textbf{e}, Step empirical cumulative distribution function (ECDF) versus interpolated-rank comparisons. Each cell gives threshold-crossing disagreements, step-only/interpolation-only emitted alarms, changed matched-alarm identities and changed event detections. \textbf{f,g}, External paired sensitivity and unmatched-alarm-burden differences, averaged over horizons and five model seeds. Bars indicate 95\% percentile intervals from 1,000 shared participant bootstrap draws. Loop includes 843 participants, of whom 827 have events, and HUPA-UCM includes 25 participants, of whom 22 have events. Sensitivity uses event-positive participants, whereas burden uses all retained participants. Development seed variation is descriptive and does not estimate participant uncertainty. All policies use a nominal calibration budget of 0.5 unmatched alarms per participant-calendar day. The external cohorts were previously examined, and no model or policy was fitted to their outcomes. A common nominal budget does not imply equal achieved burden.}
 \label{fig:composition}
 \end{figure}

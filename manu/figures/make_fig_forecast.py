@@ -68,10 +68,10 @@ def _sweep_panels(axes, payload, cells_dir: Path, published: float, control: flo
 
     # c: where a published forecaster would land on this axis.
     marks = [
-        ("this study's own forecast", blend[-1]["achieved_rmse_mg_dl"]["30"], "rose"),
-        ("shrunk crossing", crossings["shrunk_toward_truth"]["mg_dl"], "olive"),
-        ("unbiased crossing", crossings["unbiased_noise"]["mg_dl"], "amber"),
-        ("strongest published", published, "blue"),
+        ("LSTM forecast", blend[-1]["achieved_rmse_mg_dl"]["30"], "rose"),
+        ("Shrinkage crossing", crossings["shrunk_toward_truth"]["mg_dl"], "olive"),
+        ("Noise crossing", crossings["unbiased_noise"]["mg_dl"], "amber"),
+        ("Published study", published, "blue"),
     ]
     for index, (_label, value, hue) in enumerate(marks):
         ax_c.plot([value], [index], marker="o", markersize=3.0, color=G.NOMINAL[hue],
@@ -85,11 +85,11 @@ def _sweep_panels(axes, payload, cells_dir: Path, published: float, control: flo
     ax_c.set_yticklabels([lab for lab, *_ in marks], fontsize=5.0)
     ax_c.set_ylim(-0.6, len(marks) - 0.4)
     ax_c.set_xlim(0.0, 30.0)
-    ax_c.set_xlabel("30-minute forecast error (mg/dL)")
+    ax_c.set_xlabel("30-min RMSE (mg/dL)")
 
     # e, f, g: what the sweep does to the alarm ledger, not only to the endpoint.
     for axis, field, ylabel, scale in (
-        (ax_e, "alarm_count", "Alarms charged (thousands)", 1e-3),
+        (ax_e, "alarm_count", "Surviving alarms (thousands)", 1e-3),
         (ax_f, "detected_event_count", "Events detected", 1.0),
         (ax_g, "fapd", "Achieved false alarms per\nparticipant-day", 1.0),
     ):
@@ -135,10 +135,9 @@ def _sweep_panels(axes, payload, cells_dir: Path, published: float, control: flo
                  hatch=hatch or None, edgecolor=G.INK, linewidth=0.35, zorder=3)
     ax_j.axhline(control, color=G.INK, lw=0.6, ls=(0, (2.2, 1.6)), zorder=4)
     ax_j.set_xticks(range(len(bars)))
-    ax_j.set_xticklabels([lab for lab, *_ in bars], fontsize=5.0, rotation=38,
-                         ha="right")
+    ax_j.set_xticklabels([lab for lab, *_ in bars], fontsize=5.0)
     ax_j.set_ylim(0.0, 1.0)
-    ax_j.set_ylabel("Primary endpoint")
+    ax_j.set_ylabel("Primary sensitivity")
     if published >= crossings["shrunk_toward_truth"]["mg_dl"]:
         raise SystemExit(
             f"the caption says the published forecaster sits below the shrunk crossing; "
@@ -211,7 +210,6 @@ def main(argv: list[str] | None = None) -> int:
                     f"{cross['mg_dl']:.1f}", (cross["mg_dl"], control), fontsize=5.0,
                     textcoords="offset points", xytext=(dx, dy), ha=align,
                     color=G.NOMINAL[hue], zorder=5)
-        axis.set_title(f"{horizon}-minute RMSE", loc="left", fontsize=6.0, pad=3)
         axis.set_xlabel("Achieved RMSE (mg/dL)")
         axis.set_ylim(0.0, 1.0)
     ax_a.set_ylabel("Primary sensitivity\n(mean over horizons)")
@@ -237,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
               color=G.NOMINAL["olive"], linestyle="-.", marker="^", markersize=2.8,
               linewidth=0.9, zorder=3)
     ax_d.set_xlabel("Achieved forecast error (mg/dL)")
-    ax_d.set_ylabel("Unbiased minus shrunk")
+    ax_d.set_ylabel("Unbiased minus shrinkage")
     ax_d.annotate("noise is better", (points[-1][0], points[-1][1]), fontsize=5.0,
                   color=G.MUTED, textcoords="offset points", xytext=(-3.0, -7.0),
                   ha="right")
@@ -261,12 +259,18 @@ def main(argv: list[str] | None = None) -> int:
     ax_i.set_xlim(-0.55, len(rows) - 0.45)
     ax_i.set_ylim(0.65, 1.0)
     ax_i.set_ylabel("Correlation with current glucose")
-    ax_i.set_xlabel("Filled, 30 minutes; open, 60")
+    ax_i.set_xlabel("30 min filled; 60 min open")
 
     order = (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f, ax_g, ax_h, ax_i, ax_j)
     _sweep_panels((ax_c, ax_e, ax_f, ax_g, ax_h, ax_j), payload, arguments.cells_dir,
                   arguments.published_rmse, control)
-    for axis in order:
+    titles = (
+        "30-minute RMSE", "60-minute RMSE", "RMSE context", "Sensitivity difference",
+        "Alarm burden", "Matched events", "False-alarm rate", "Cohort sensitivity",
+        "Glucose persistence", "Forecast alarms",
+    )
+    for axis, title in zip(order, titles, strict=True):
+        axis.set_title(title, loc="left", fontsize=6.0, pad=3)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.set_axisbelow(True)

@@ -52,8 +52,8 @@ CHANNEL_LABEL = {
     "Heart rate": "Heart rate",
     "Steps": "Steps",
     "Energy expenditure": "Energy",
-    "Skin temperature": "Skin temp.",
-    "Ambient temperature": "Ambient temp.",
+    "Skin temperature": "Skin temp",
+    "Ambient temperature": "Ambient temp",
     "Electrodermal activity": "Electrodermal",
     "Workout": "Workout",
 }
@@ -66,7 +66,7 @@ NAMED = (
     ("Shanghai T1DM", "rose", "--", "s"),
     ("ReplaceBG", "olive", "-.", "^"),
 )
-MARKS = (54.0, 61.0, 70.0)
+MARKS = (54.0, 70.0)
 LEVEL2 = 54.0
 # The two participant axes in panels b and c. The first is the cohort recording the most
 # action channels, the second the only cohort recording wearables, so between them the
@@ -143,28 +143,29 @@ def main(argv: list[str] | None = None) -> int:
         figsize=(WIDTH_MM["double"] * G.MM, arguments.height_mm * G.MM)
     )
     grid = figure.add_gridspec(
-        5, 12, height_ratios=(3.05, 2.0, 2.05, 2.75, 1.95),
-        left=0.070, right=0.988, top=0.968, bottom=0.055, wspace=1.55, hspace=0.62,
+        5, 12, height_ratios=(2.75, 2.3, 1.85, 3.0, 2.6),
+        left=0.070, right=0.988, top=0.968, bottom=0.045, wspace=1.55, hspace=0.62,
     )
     ax_a = figure.add_subplot(grid[0, :])
     # The action lanes get their own band under each trace rather than being overlaid on
     # the glucose axis. Drawn on one axis the insulin stems read as glucose values,
     # which is what the first render of this panel did.
-    # 1.15 rather than 1.0 for the lane band. Four lane labels at the 5 pt floor need
-    # about 10 mm between them, and 1.0 gave the band 8 mm, so Basal, Bolus, Carbs and
-    # Meal were drawn touching. The font cannot go lower, so the band goes taller.
-    sub_b = grid[1, 0:8].subgridspec(2, 1, height_ratios=(1.85, 1.15), hspace=0.12)
-    sub_c = grid[1, 8:12].subgridspec(2, 1, height_ratios=(1.85, 1.15), hspace=0.12)
+    # Four action labels need distinct rows at the final 5 pt size. Allocate
+    # physical height to their lane band instead of reducing the lettering.
+    sub_b = grid[1, 0:8].subgridspec(2, 1, height_ratios=(1.6, 1.4), hspace=0.12)
+    sub_c = grid[1, 8:12].subgridspec(2, 1, height_ratios=(1.6, 1.4), hspace=0.12)
     ax_b, ax_b_lanes = figure.add_subplot(sub_b[0]), figure.add_subplot(sub_b[1])
     ax_c, ax_c_lanes = figure.add_subplot(sub_c[0]), figure.add_subplot(sub_c[1])
     ax_d = figure.add_subplot(grid[2, 0:4])
     ax_e = figure.add_subplot(grid[2, 4:8])
     ax_f = figure.add_subplot(grid[2, 8:12])
-    ax_g = figure.add_subplot(grid[3, :])
-    ax_h = figure.add_subplot(grid[4, 0:3])
-    ax_i = figure.add_subplot(grid[4, 3:6])
-    ax_j = figure.add_subplot(grid[4, 6:9])
-    ax_k = figure.add_subplot(grid[4, 9:12])
+    # Coverage and modelling exposure share a row. Population composition then
+    # uses three readable columns, retaining the same source order and values.
+    ax_g = figure.add_subplot(grid[3, 0:8])
+    ax_h = figure.add_subplot(grid[4, 0:4])
+    ax_i = figure.add_subplot(grid[4, 4:8])
+    ax_j = figure.add_subplot(grid[4, 8:12])
+    ax_k = figure.add_subplot(grid[3, 8:12])
 
     named = {name for name, *_ in NAMED}
 
@@ -289,10 +290,14 @@ def main(argv: list[str] | None = None) -> int:
     for source, hue, dash, mark in NAMED:
         block = profile["sources"][source]
         share = _fraction_below(block, edges, 70.0)
+        # Emit only in-view marker symbols. The full source curve is retained;
+        # some editable PDF importers drop clipping on reused marker XObjects.
+        visible_markers = [i for i in range(0, len(coarse_centres), 7)
+                           if 40.0 <= coarse_centres[i] <= 340.0]
         ax_d.plot(
             coarse_centres, _density(coarse(block["glucose_histogram"]), coarse_edges),
             color=G.NOMINAL[hue], linewidth=0.9, linestyle=dash, marker=mark,
-            markevery=7, markersize=2.0, zorder=4,
+            markevery=visible_markers, markersize=2.0, zorder=4,
             label=f"{SOURCE_LABEL.get(source, source)} ({share:.1%})",
         )
     for value in MARKS:
@@ -305,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
                 labelspacing=0.2, fontsize=5.0)
 
     # ---- e: the same distributions where alarms are actually decided ----------------
-    ax_e.axvspan(54.0, 61.0, color=G.NOMINAL["rose"], alpha=0.13, lw=0, zorder=1)
+    ax_e.axvspan(54.0, 70.0, color=G.NOMINAL["rose"], alpha=0.13, lw=0, zorder=1)
     for source in sources:
         block = profile["sources"][source]
         cumulative = np.cumsum(np.asarray(block["glucose_histogram"], dtype=float))
@@ -316,8 +321,12 @@ def main(argv: list[str] | None = None) -> int:
                       linewidth=0.4, alpha=0.85, zorder=2)
         else:
             hue, dash, mark = style
+            visible_markers = [i for i in range(0, len(cumulative), 6)
+                               if 40.0 <= edges[i + 1] <= 100.0
+                               and 0.0 <= 100.0 * cumulative[i] <= 12.0]
             ax_e.plot(edges[1:], 100.0 * cumulative, color=G.NOMINAL[hue],
-                      linewidth=0.9, linestyle=dash, marker=mark, markevery=6,
+                      linewidth=0.9, linestyle=dash, marker=mark,
+                      markevery=visible_markers,
                       markersize=2.0, zorder=4)
     for value in MARKS:
         ax_e.axvline(value, color=G.INK, linewidth=0.5,
@@ -350,8 +359,8 @@ def main(argv: list[str] | None = None) -> int:
     ax_f.set_xlim(0.0, 24.0)
     ax_f.set_xticks([0, 6, 12, 18, 24])
     ax_f.set_ylim(bottom=0.0)
-    ax_f.set_xlabel("Hour of day")
-    ax_f.set_ylabel("Readings below 54 (%)")
+    ax_f.set_xlabel("Recorded clock hour")
+    ax_f.set_ylabel("Readings <54 (%)")
 
     # ---- g: which cohort records which channel --------------------------------------
     coverage = np.array([
@@ -382,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
     ax_g.set_ylim(len(channels) - 0.5, -0.5)
     ax_g.set_xticks(range(len(sources)))
     ax_g.set_xticklabels([SOURCE_LABEL.get(s, s) for s in sources],
-                         rotation=38, ha="right", fontsize=5.0)
+                         ha="center", fontsize=5.0)
     ax_g.set_yticks(range(len(channels)))
     ax_g.set_yticklabels([CHANNEL_LABEL[c] for c in channels], fontsize=5.0)
     for spine in ax_g.spines.values():
@@ -429,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
                                          edgecolor=G.NEUTRAL, linewidth=0.35))
             labels.append(missing_label)
         axis.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 1.0),
-                    ncol=2, fontsize=5.0, handlelength=1.0, handleheight=0.9,
+                    ncol=len(labels), fontsize=5.0, handlelength=1.0, handleheight=0.9,
                     columnspacing=0.7, borderaxespad=0.1, labelspacing=0.18)
 
     def sex_counts(source: str) -> dict[str, float]:
@@ -502,25 +511,34 @@ def main(argv: list[str] | None = None) -> int:
     ax_k.set_xscale("log")
     ax_k.set_yscale("log")
     ax_k.set_xlim(80.0, 1.3e5)
-    ax_k.set_xlabel("Person-days")
-    ax_k.set_ylabel("Level 2 events")
+    ax_k.set_xlabel("Participant-days", labelpad=0.5)
+    ax_k.set_ylabel("Base events (60 min)")
 
     for axis in (ax_a, ax_b, ax_c, ax_d, ax_e, ax_f, ax_h, ax_i, ax_j, ax_k):
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.set_axisbelow(True)
-    for axis, letter, dx, dy in (
-        # panel_label hangs the glyph DOWNWARD from dy, so 1.055 on a 34 mm axis
-        # put the letter's baseline below the axis top and onto the first tick
-        # label. It has to clear its own height, not merely be positive.
-        (ax_a, "a", -0.038, 1.095), (ax_b, "b", -0.062, 1.145),
-        (ax_c, "c", -0.150, 1.145), (ax_d, "d", -0.235, 1.150),
-        (ax_e, "e", -0.235, 1.150), (ax_f, "f", -0.235, 1.150),
-        (ax_g, "g", -0.038, 1.070), (ax_h, "h", -0.330, 1.470),
-        (ax_i, "i", -0.135, 1.470), (ax_j, "j", -0.135, 1.140),
-        (ax_k, "k", -0.330, 1.140),
+    for axis, letter, title, header_mm in (
+        (ax_a, "a", "Event-aligned CGM", 3.0),
+        (ax_b, "b", "Recorded actions", 3.0),
+        (ax_c, "c", "Recorded wearables", 3.0),
+        (ax_d, "d", "Glucose distribution", 3.0),
+        (ax_e, "e", "Low-glucose range", 3.0),
+        (ax_f, "f", "Time of day", 3.0),
+        (ax_g, "g", "Recording coverage", 3.0),
+        (ax_k, "h", "Eligible cohort exposure", 3.0),
+        (ax_h, "i", "Insulin delivery", 6.5),
+        (ax_i, "j", "Sex composition", 6.5),
+        (ax_j, "k", "Age distribution", 6.5),
     ):
+        width_mm = axis.get_position().width * WIDTH_MM["double"]
+        height_mm = axis.get_position().height * arguments.height_mm
+        dx, dy = 0.0, 1.0 + header_mm / height_mm
         G.panel_label(axis, letter, dx=dx, dy=dy)
+        axis.text(
+            dx + 3.8 / width_mm, dy, title, transform=axis.transAxes,
+            fontsize=6.0, fontweight="bold", color=G.INK, va="top", ha="left",
+        )
 
     G.save(figure, str(arguments.output), caption_words=arguments.caption_words)
 

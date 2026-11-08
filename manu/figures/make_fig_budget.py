@@ -48,7 +48,8 @@ def main(argv: list[str] | None = None) -> int:
                         default=_caption_words.count("fig_budget"))
     arguments = parser.parse_args(argv)
 
-    derived = json.loads(arguments.summary.read_text())["derived"]
+    summary = json.loads(arguments.summary.read_text())
+    derived = summary["derived"]
     budgets = sorted(float(k) for k in derived)
     rows = [derived[k] for k in sorted(derived, key=float)]
     if len(budgets) < 4:
@@ -57,6 +58,17 @@ def main(argv: list[str] | None = None) -> int:
     sd = np.array([r["sd"] for r in rows])
     control = np.array([r["control"] for r in rows])
     sigma = np.array([r["sigma"] for r in rows])
+    budget_keys = sorted(derived, key=float)
+    seeds = sorted(summary["per_seed"][budget_keys[0]])
+    if len(seeds) != 5 or any(set(summary["per_seed"][k]) != set(seeds)
+                              for k in budget_keys):
+        raise SystemExit("the budget sweep requires the same five fits at every budget")
+    individual = np.array([[summary["per_seed"][k][s] for k in budget_keys]
+                           for s in seeds])
+    if (not np.allclose(individual.mean(axis=0), mean, atol=1e-12, rtol=0)
+            or not np.allclose(individual.std(axis=0, ddof=1), sd,
+                               atol=1e-12, rtol=0)):
+        raise SystemExit("individual fits disagree with the stored mean or sample SD")
 
     G.set_style()
     figure, axes = plt.subplots(
@@ -71,16 +83,20 @@ def main(argv: list[str] | None = None) -> int:
         axis.set_xticks(budgets)
         axis.set_xticklabels([f"{b:g}" for b in budgets], fontsize=5.2)
         axis.minorticks_off()
-        axis.set_xlabel("Nominal false alarms per participant-day")
+        axis.set_xlabel("Nominal false alarms per\nparticipant-day", linespacing=1.35)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
 
     ax_a.fill_between(budgets, mean - sd, mean + sd, color=G.NOMINAL["blue"],
                       alpha=0.16, lw=0, zorder=2)
     ax_a.plot(budgets, mean, color=G.NOMINAL["blue"], marker="o", markersize=2.8,
-              linestyle="--", label="Deep arm, five seeds", zorder=3)
+              linestyle="--", label="LSTM mean ± SD", zorder=3)
     ax_a.plot(budgets, control, color=G.NOMINAL["rose"], marker="s", markersize=2.8,
               linestyle="-", label="Current glucose (control)", zorder=4)
+    for index, values in enumerate(individual):
+        ax_a.plot(budgets, values, color=G.NEUTRAL, linewidth=0.45,
+                  marker="o", markersize=1.7, alpha=0.7, zorder=2.5,
+                  label="Individual LSTM fits" if index == 0 else None)
     ax_a.set_ylim(0.0, 1.0)
     ax_a.set_ylabel("Level 2 event sensitivity")
     ax_a.legend(loc="upper left", handlelength=2.0, borderaxespad=0.3,
@@ -94,14 +110,17 @@ def main(argv: list[str] | None = None) -> int:
         ax_b.plot([budget, budget], [0.0, value], color=colour, lw=0.8, zorder=3)
         ax_b.plot([budget], [value], marker="s" if value > 0 else "o",
                   markersize=3.0, color=colour, zorder=4)
-    ax_b.set_ylabel("Control's margin (seed sd at that budget)")
+    ax_b.set_ylabel("Control − LSTM mean\n(in budget-specific seed SDs)", linespacing=1.35)
 
     ax_c.plot(budgets, sd, color=G.NOMINAL["olive"], marker="^", markersize=2.8,
               linestyle="-.", zorder=3)
     ax_c.set_ylim(0.0, max(sd) * 1.12)
     ax_c.set_ylabel("Seed standard deviation")
 
-    for axis, letter in zip(axes, "abc", strict=True):
+    for axis, letter, title in zip(axes, "abc",
+                                   ("Sensitivity by budget", "Standardized contrast",
+                                    "Optimization variability"), strict=True):
+        axis.set_title(title, loc="left", fontsize=6.0, fontweight="bold", pad=4)
         G.panel_label(axis, letter, dx=-0.175, dy=1.115)
 
     G.save(figure, str(arguments.output), caption_words=arguments.caption_words)

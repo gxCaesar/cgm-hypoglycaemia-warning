@@ -90,9 +90,9 @@ def _panel_distribution(axis, data: dict) -> None:
     # TIE into the "network warns earlier" bar and let the caption quote 94.8% when
     # the network is strictly earlier on 81.6%. Ties are 13.3% of these events and
     # they are their own answer, not a win for either arm.
-    groups = ((diff > 0, NETWORK, "///", "network earlier"),
-              (diff == 0, NEUTRAL, "....", "same minute"),
-              (diff < 0, _G.NOMINAL["rose"], "xxxx", "threshold earlier"))
+    groups = ((diff > 0, NETWORK, "///", "LSTM earlier"),
+              (diff == 0, NEUTRAL, "....", "tied"),
+              (diff < 0, _G.NOMINAL["rose"], "xxxx", "control earlier"))
     for mask, colour, hatch, name in groups:
         share = float(mask.mean())
         axis.hist(diff[mask], bins=edges, color=colour, edgecolor=INK,
@@ -102,9 +102,9 @@ def _panel_distribution(axis, data: dict) -> None:
     axis.axvline(median, color=INK, linewidth=0.9)
     axis.annotate(f"median {median:+.0f} min", xy=(median, axis.get_ylim()[1]),
                   xytext=(3, -2), textcoords="offset points", va="top", fontsize=6.5)
-    axis.set_xlabel("Warning time, network minus threshold (min)")
+    axis.set_xlabel("LSTM − control lead time (min)", labelpad=2)
     axis.set_ylabel("Events")
-    axis.set_title("a)", loc="left", fontweight="bold")
+    axis.set_title("a)  Paired warning lead time", loc="left", fontweight="bold")
     axis.legend(loc="upper left", handlelength=1.4)
 
 
@@ -162,14 +162,25 @@ def _panel_case(axis, case: dict, label: str, show_x: bool) -> None:
             # invisible in the render.
             axis.scatter(shown[hit], y[hit], s=58, marker="o", facecolor="none",
                          edgecolor=INK, linewidth=0.8, zorder=6)
-    axis.set_ylabel("mg/dL")
+    axis.set_ylabel("Glucose (mg/dL)")
     if np.nanmax(cgm) > top:
-        axis.annotate(f"peak {np.nanmax(cgm):.0f}", xy=(TRACE_XLIM[0] + 4, top),
+        axis.annotate(f"peak {np.nanmax(cgm):.0f} mg/dL", xy=(TRACE_XLIM[0] + 4, top),
                       va="top", ha="left", fontsize=6.0)
-    axis.set_title(f"{label})", loc="left", fontweight="bold")
+    case_titles = {"b": "10th percentile (tie)", "c": "50th percentile",
+                   "d": "90th percentile"}
+    if label == "b":
+        # The histogram's abscissa uses the narrow gap above this trace. Keep the
+        # case descriptor inside its clear upper margin instead of over that label.
+        axis.set_title(f"{label})", loc="left", fontweight="bold")
+        axis.text(0.025, 0.985, case_titles[label], transform=axis.transAxes,
+                  va="top", fontsize=7.0, fontweight="bold")
+    else:
+        axis.set_title(f"{label})  {case_titles[label]}", loc="left", fontweight="bold")
     axis.set_xlim(*TRACE_XLIM)
     if show_x:
-        axis.set_xlabel("Minutes relative to event onset")
+        # Keep time labels below both alarm rails and their matched-firing rings.
+        axis.tick_params(axis="x", pad=18)
+        axis.set_xlabel("Time from event onset (min)")
     else:
         axis.tick_params(labelbottom=False)
 
@@ -207,8 +218,8 @@ def _extra_panels(axes, calibration_dir, collapse_dir):
     ax_e.set_xticks(range(len(arms)))
     ax_e.set_xticklabels([label for _s, label, *_ in arms], fontsize=5.0)
     ax_e.set_xlim(-0.6, len(arms) - 0.4)
-    ax_e.set_ylabel("Threshold-positive windows\nper participant")
-    ax_e.set_xlabel("Filled, median; open, p90 and max")
+    ax_e.set_ylabel("Threshold-positive\nwindows per participant", linespacing=1.4)
+    ax_e.set_xlabel("Filled median; open p90, max", fontsize=6.5)
 
     # f: how early the matched warnings arrive.
     for index, (stem, _label, hue, mark) in enumerate(arms):
@@ -232,7 +243,7 @@ def _extra_panels(axes, calibration_dir, collapse_dir):
     ax_f.set_xticklabels([label for _s, label, *_ in arms], fontsize=5.0)
     ax_f.set_xlim(-0.6, len(arms) - 0.4)
     ax_f.set_ylabel("Median warning time (min)")
-    ax_f.set_xlabel("Filled, 30 minutes; open, 60")
+    ax_f.set_xlabel("Filled 30 min; open 60 min", fontsize=6.5)
 
     # g, h: the collapse ratio is a property of the operating point, not of an arm.
     # i, j: and so, at a matched alarm count, is which arm touches more distinct events.
@@ -252,18 +263,23 @@ def _extra_panels(axes, calibration_dir, collapse_dir):
             alarms = [r["alarms"] / 1000.0 for r in points]
             ratio_axis.plot(alarms, [r["collapse_ratio"] for r in points],
                             color=_G.NOMINAL[hue], marker=mark, markersize=2.0,
-                            linewidth=0.8, zorder=3, label=label)
+                            linewidth=0.8, linestyle="--" if stem.startswith("persistence")
+                            else "-", zorder=3, label=label)
             cover_axis.plot(alarms, [r["events_touched"] for r in points],
                             color=_G.NOMINAL[hue], marker=mark, markersize=2.0,
-                            linewidth=0.8, zorder=3)
+                            linewidth=0.8, linestyle="--" if stem.startswith("persistence")
+                            else "-", zorder=3)
         ratio_axis.set_ylabel(f"Collapse ratio, {horizon} min")
         cover_axis.set_ylabel(f"Events touched, {horizon} min")
         for axis in (ratio_axis, cover_axis):
             axis.set_xscale("log")
-            axis.set_xlabel("Surviving alarms (thousands)")
+            axis.set_xlabel("Surviving alarms (×10³)", fontsize=6.5)
     ax_g.legend(loc="upper left", fontsize=5.0, handlelength=1.4,
                 borderaxespad=0.2, labelspacing=0.2)
-    for axis, letter in zip(axes, "efghij", strict=True):
+    titles = ("Crossing burden", "Warning lead time", "Refractory collapse",
+              "Refractory collapse", "Event coverage", "Event coverage")
+    for axis, letter, title in zip(axes, "efghij", titles, strict=True):
+        axis.set_title(title, loc="left", fontsize=6.5, fontweight="bold", pad=5)
         box = axis.get_position()
         axis.figure.text(box.x0 - 0.058, box.y1 + 0.024, f"{letter})", fontsize=7.0,
                          fontweight="bold", color=INK, va="top")

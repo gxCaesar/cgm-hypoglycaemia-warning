@@ -9,5 +9,6 @@ authors:
     orcid: "https://orcid.org/0000-0002-4435-0884"
     affiliation: "City University of Hong Kong (Dongguan), Dongguan, China"
 license: MIT
-version: 0.2.2
+version: 0.3.0
+date-released: 2026-11-09
 repository-code: "https://github.com/gxCaesar/cgm-hypoglycaemia-warning"

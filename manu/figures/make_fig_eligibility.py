@@ -57,8 +57,8 @@ LABEL = {
 # architecture rather than an arm.
 SHORT = {CONTROL: "Current glucose (control)", LEADING: "LSTM, balanced ERM"}
 EFFECTS = (
-    ("model", "Control minus strongest trained arm,\nfrozen eligibility", "rose"),
-    ("eligibility", "Strongest trained arm minus control,\nat the 70 mg/dL cut-off",
+    ("model", "Control − strongest trained arm\nFrozen eligibility", "rose"),
+    ("eligibility", "Strongest trained arm − control\nGlucose ≥70 mg/dL",
      "blue"),
 )
 
@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
                   marker=mark, markersize=3.0, linewidth=0.9,
                   label=SHORT[arm], zorder=3)
     ax_a.set_xticks(CUTOFFS)
-    ax_a.set_xlabel("Eligibility cut-off on current glucose (mg/dL)")
+    ax_a.set_xlabel("Current glucose cut-off (mg/dL)")
     ax_a.set_ylabel("Level 2 event sensitivity")
     ax_a.set_ylim(0.0, 1.0)
     ax_a.legend(loc="lower left", handlelength=2.0, borderaxespad=0.3,
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     ax_b.set_yticklabels([LABEL[a] for a in order], fontsize=5.2)
     ax_b.set_ylim(-0.7, len(order) - 0.3)
     ax_b.set_xlim(0.0, 0.62)
-    ax_b.set_xlabel("Level 2 event sensitivity at a 70 mg/dL cut-off")
+    ax_b.set_xlabel("Level 2 event sensitivity")
 
     # ---- c, d: which of the two effects survives cohort by cohort ------------------
     rows = sorted(per, key=lambda s: (per[s]["participants"], s))
@@ -178,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
                       markerfacecolor="none" if small else G.NOMINAL[hue],
                       markeredgecolor=G.NOMINAL[hue], markeredgewidth=0.9,
                       linestyle="none", zorder=4)
-        axis.set_title(title, loc="left", fontsize=6.0, pad=3)
+        axis.set_title(title, loc="left", fontsize=6.0, pad=3, linespacing=1.35)
         axis.set_xlabel("Difference in level 2 event sensitivity")
         axis.set_xlim(-0.62, 0.72)
         axis.set_ylim(-0.7, len(rows) - 0.3)
@@ -198,15 +198,26 @@ def main(argv: list[str] | None = None) -> int:
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.set_axisbelow(True)
-    for axis, letter, dx in (
-        (ax_a, "a", 0.062), (ax_b, "b", 0.058), (ax_e, "e", 0.062),
-        (ax_c, "c", 0.140), (ax_d, "d", 0.030), (ax_f, "f", 0.062),
-        (ax_g, "g", 0.058), (ax_h, "h", 0.058), (ax_i, "i", 0.058),
-        (ax_j, "j", 0.058),
+    for axis, letter, title, dx in (
+        (ax_a, "a", "Eligibility restriction", 0.062),
+        (ax_b, "b", "Glucose ≥70 mg/dL", 0.058),
+        (ax_e, "e", "Within-band ranks", 0.062),
+        (ax_c, "c", None, 0.140), (ax_d, "d", None, 0.030),
+        (ax_f, "f", "Warnable events", 0.062),
+        (ax_g, "g", "Detected events", 0.058),
+        (ax_h, "h", "Alarm counts", 0.058),
+        (ax_i, "i", "Control by cohort", 0.058),
+        (ax_j, "j", "LSTM by cohort", 0.058),
     ):
         box = axis.get_position()
-        figure.text(box.x0 - dx, box.y1 + 0.026, f"{letter})", fontsize=7.0,
+        bottom = letter in "ghij"
+        header_x = box.x0 if bottom else box.x0 - dx
+        header_y = box.y1 + (0.015 if bottom else 0.026)
+        figure.text(header_x, header_y, f"{letter})", fontsize=7.0,
                     fontweight="bold", color=G.INK, va="top")
+        if title:
+            figure.text(header_x + 0.022, header_y, title, fontsize=6.0,
+                        fontweight="bold", color=G.INK, va="top")
 
     G.save(figure, str(arguments.output), caption_words=arguments.caption_words)
     last = order[0]
@@ -256,10 +267,10 @@ def _more_panels(axes, agreement, warnable, cutcurve_dir, euglycaemic_dir):
                   label=key.split("|")[1].upper())
     ax_e.axvspan(0.5, 1.5, color=G.MUTED, alpha=0.12, lw=0, zorder=1)
     ax_e.set_xticks(range(len(available)))
-    ax_e.set_xticklabels(available, rotation=40, ha="right", fontsize=5.0)
+    ax_e.set_xticklabels(available, rotation=65, ha="right", fontsize=5.0)
     ax_e.set_ylim(0.0, 1.0)
-    ax_e.set_ylabel("Rank agreement\nwith the control")
-    ax_e.set_xlabel("Glucose band (mg/dL)")
+    ax_e.set_ylabel("Rank agreement\nwith the control", linespacing=1.35)
+    ax_e.set_xlabel("Glucose (mg/dL)", loc="right")
     ax_e.legend(loc="lower right", fontsize=5.0, handlelength=1.6,
                 borderaxespad=0.2, labelspacing=0.2)
 
@@ -277,7 +288,8 @@ def _more_panels(axes, agreement, warnable, cutcurve_dir, euglycaemic_dir):
                          fontsize=5.0)
     ax_f.set_ylim(-0.6, len(order_f) - 0.4)
     ax_f.set_xlim(0.0, 1.0)
-    ax_f.set_xlabel("Level 2 events with an\neligible lead-in, 30 min")
+    ax_f.set_xlabel("Level 2 events with an\neligible lead-in, 30 min",
+                    linespacing=1.35, labelpad=2.0)
 
     # g, h: what each cut costs, and whether a matched alarm count keeps the gap.
     cuts = (54, 60)

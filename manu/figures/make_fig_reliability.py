@@ -83,8 +83,11 @@ def main(argv: list[str] | None = None) -> int:
             bins = payload["horizons"][horizon]["reliability_bins"]
             predicted = [b["mean_predicted"] for b in bins]
             observed = [b["observed_rate"] for b in bins]
+            shown_markers = [i for i, (x, y) in enumerate(zip(predicted, observed,
+                                                            strict=True))
+                             if 1e-5 <= x <= 1.0 and 1e-5 <= y <= 1.0]
             axis.plot(predicted, observed, marker=marker, color=colour,
-                      linestyle=dashes, markersize=3.0,
+                      linestyle=dashes, markersize=3.0, markevery=shown_markers,
                       label=label if horizon == "30" else None)
 
     for axis, horizon in zip(axes, ("30", "60")):  # noqa: B905
@@ -94,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         axis.set_yscale("log")
         axis.set_xlim(low, 1.0)
         axis.set_ylim(low, 1.0)
-        axis.set_xlabel("mean predicted risk")
-        axis.set_title(f"{horizon} min", loc="left", fontweight="bold")
+        axis.set_xlabel("Mean predicted window risk")
+        axis.set_title(f"{horizon}-minute calibration", loc="left", fontweight="bold")
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
-    axes[0].set_ylabel("observed event rate")
+    axes[0].set_ylabel("Observed positive-window rate")
     axes[0].legend(loc="upper left")
     # Lettered for the same reason as the calibration figure: a horizon printed as a
     # panel title cannot be cited from prose.

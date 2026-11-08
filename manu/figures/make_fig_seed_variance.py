@@ -38,6 +38,7 @@ WIDTH_MM = {"single": 88.0, "double": 180.0}
 # does not move when the ranking does.
 SEEDS = ["017", "023", "042", "071", "101"]
 HUES = ["blue", "rose", "amber", "olive", "teal"]
+MARKERS = ["o", "s", "^", "D", "v"]
 STYLES = ["solid", (0, (3.2, 1.4)), (0, (1.2, 1.0)),
           (0, (5.0, 1.6, 1.2, 1.6)), (0, (2.0, 1.2, 0.8, 1.2))]
 
@@ -77,10 +78,10 @@ def _panel_seeds(axis, runs: dict[str, dict]) -> None:
 
     # strict, because an unequal zip here silently DROPS a seed and the panel still
     # renders: five fits drawn as four, with nothing saying so.
-    for pos, _seed, value, burden, hue in zip(
-        positions, SEEDS, values, burdens, HUES, strict=True
+    for pos, _seed, value, burden, hue, marker in zip(
+        positions, SEEDS, values, burdens, HUES, MARKERS, strict=True
     ):
-        axis.plot([value], [pos], marker="o", markersize=4.0,
+        axis.plot([value], [pos], marker=marker, markersize=4.0,
                   color=G.NOMINAL[hue], linestyle="none", zorder=3)
         axis.annotate(f"{value:.3f}   {burden:.2f} FA/day",
                       xy=(value, pos), xytext=(6, 0), textcoords="offset points",
@@ -108,21 +109,20 @@ def _panel_seeds(axis, runs: dict[str, dict]) -> None:
     span = max(values) - min(values)
     axis.set_xlim(min(values) - 0.35 * span, max(values) + 1.15 * span)
     axis.set_ylim(-0.6, len(SEEDS) - 0.4)
-    axis.set_xlabel("event sensitivity at nominal 0.5 FA/day")
-    axis.set_title("five fits, training seed only", pad=3)
+    axis.set_xlabel("Primary sensitivity\nNominal 0.5 FA/day", linespacing=1.35)
 
 
 def _panel_frontier(axis, runs: dict[str, dict], horizon: str, show_legend: bool) -> None:
-    for seed, hue, style in zip(SEEDS, HUES, STYLES, strict=True):
+    for seed, hue, style, marker in zip(SEEDS, HUES, STYLES, MARKERS, strict=True):
         x, y = _frontier(runs[seed], horizon)
         axis.plot(x, y, color=G.NOMINAL[hue], linewidth=0.9, linestyle=style,
+                  marker=marker, markersize=1.8, markevery=max(len(x) // 10, 1),
                   label=f"seed {seed}", zorder=3)
     axis.axvline(NOMINAL_FAPD, color=G.MUTED, linewidth=0.7,
                  linestyle=(0, (2.5, 1.5)), zorder=1)
     axis.set_xlim(0.0, FRONTIER_MAX_FAPD)
     axis.set_ylim(0.0, 1.0)
-    axis.set_xlabel("false alarms per participant-day")
-    axis.set_title(f"{horizon} min", pad=3)
+    axis.set_xlabel("False alarms per\nparticipant-day", linespacing=1.35)
     if show_legend:
         axis.legend(loc="lower right", handlelength=2.4, borderaxespad=0.3)
 
@@ -166,8 +166,8 @@ def _seed_panels(axes, runs, summary):
         spreads[source] = statistics.pstdev(values)
         ax_d.plot([min(values), max(values)], [index, index], color=G.NEUTRAL, lw=0.6,
                   solid_capstyle="butt", zorder=2)
-        for value, hue in zip(values, HUES, strict=True):
-            ax_d.plot([value], [index], marker="o", markersize=1.9,
+        for value, hue, marker in zip(values, HUES, MARKERS, strict=True):
+            ax_d.plot([value], [index], marker=marker, markersize=1.9,
                       color=G.NOMINAL[hue], zorder=3)
     ax_d.set_yticks(range(len(order)))
     ax_d.set_yticklabels([s.replace("Shanghai T1DM", "Shanghai") for s in order],
@@ -204,13 +204,13 @@ def _seed_panels(axes, runs, summary):
             for seed in SEEDS)
         for horizon in ("30", "60")
     }
-    labels = ["Point estimate", "Frontier, 30", "Frontier, 60"]
+    labels = ["Primary", "Frontier\n30 min", "Frontier\n60 min"]
     heights = [point, areas["30"], areas["60"]]
     ax_f.bar(range(len(labels)), heights, width=0.62, color=G.NOMINAL["amber"],
              hatch="///", edgecolor=G.INK, linewidth=0.4, zorder=3)
     ax_f.set_xticks(range(len(labels)))
-    ax_f.set_xticklabels(labels, rotation=38, ha="right", fontsize=5.0)
-    ax_f.set_ylabel("Standard deviation across seeds")
+    ax_f.set_xticklabels(labels, fontsize=5.0)
+    ax_f.set_ylabel("SD across seeds")
 
     # g, h, i: what else moves across seeds.
     for axis, field, ylabel, scale in (
@@ -220,10 +220,11 @@ def _seed_panels(axes, runs, summary):
         (ax_i, "detected_event_count", "Events detected", 1.0),
     ):
         for index, horizon in enumerate(("30", "60")):
-            for offset, (seed, hue) in enumerate(zip(SEEDS, HUES, strict=True)):
+            for offset, (seed, hue, marker) in enumerate(zip(SEEDS, HUES, MARKERS,
+                                                          strict=True)):
                 x = index + (offset - 2) * 0.14
                 axis.plot([x], [float(metrics[seed][horizon][field]) * scale],
-                          marker="o", markersize=2.2, color=G.NOMINAL[hue], zorder=3)
+                          marker=marker, markersize=2.2, color=G.NOMINAL[hue], zorder=3)
         axis.set_xticks([0, 1])
         axis.set_xticklabels(["30 min", "60 min"], fontsize=5.0)
         axis.set_xlim(-0.5, 1.5)
@@ -231,10 +232,10 @@ def _seed_panels(axes, runs, summary):
     ax_g.axhline(0.5, color=G.INK, lw=0.6, ls=(0, (2.2, 1.6)), zorder=2)
 
     # j: the two horizons move together, which is why averaging them buys little.
-    for seed, hue in zip(SEEDS, HUES, strict=True):
+    for seed, hue, marker in zip(SEEDS, HUES, MARKERS, strict=True):
         a = float(metrics[seed]["30"]["equal_source_participant_macro_event_sensitivity"])
         b = float(metrics[seed]["60"]["equal_source_participant_macro_event_sensitivity"])
-        ax_j.plot([0, 1], [a, b], color=G.NOMINAL[hue], lw=0.8, marker="o",
+        ax_j.plot([0, 1], [a, b], color=G.NOMINAL[hue], lw=0.8, marker=marker,
                   markersize=2.4, zorder=3)
     ax_j.set_xticks([0, 1])
     ax_j.set_xticklabels(["30 min", "60 min"], fontsize=5.0)
@@ -300,10 +301,14 @@ def main(argv: list[str] | None = None) -> int:
     _panel_seeds(axes[0], runs)
     _panel_frontier(axes[1], runs, "30", show_legend=False)
     _panel_frontier(axes[2], runs, "60", show_legend=True)
-    axes[1].set_ylabel("event sensitivity")
+    axes[1].set_ylabel("Event sensitivity")
     noisiest = _seed_panels(rest, runs, _summary(arguments.input))  # (cohort, its sd, the largest cohort's sd)
 
-    for axis, letter in zip(axes + rest, "abcdefghij", strict=True):
+    titles = ("Primary sensitivity", "30-minute frontiers", "60-minute frontiers",
+              "Cohort variability", "Cohort size", "Endpoint variability",
+              "False-alarm rate", "Alarm burden", "Matched events", "Horizon coupling")
+    for axis, letter, title in zip(axes + rest, "abcdefghij", titles, strict=True):
+        axis.set_title(title, loc="left", fontsize=6.0, fontweight="bold", pad=4)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         axis.set_axisbelow(True)

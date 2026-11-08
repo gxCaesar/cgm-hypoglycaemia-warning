@@ -98,6 +98,7 @@ def build_participant_block(
     frame: pd.DataFrame,
     *,
     scaler: SequenceScaler,
+    input_feature_mode: str = "multimodal",
 ) -> ParticipantFeatureBlock:
     """Assemble one participant's pointwise features exactly as the original does."""
 
@@ -115,6 +116,8 @@ def build_participant_block(
 
     action_last_observed: list[np.ndarray] = []
     for position, field in enumerate(ACTION_FIELDS):
+        if input_feature_mode == "cgm_mask_clock":
+            continue
         base = _CGM_COLUMNS + position * _COLUMNS_PER_ACTION
         observed = frame[f"{field}_observed"].to_numpy(dtype=bool)
         raw = frame[field].to_numpy(dtype=float)
@@ -164,6 +167,7 @@ def _shared_participant_blocks(
     store: ParticipantSequenceStore,
     scaler: SequenceScaler,
     keys: list,
+    input_feature_mode: str = "multimodal",
 ) -> list[ParticipantFeatureBlock]:
     """Build each participant's block once per (store, scaling), not per dataset.
 
@@ -180,11 +184,14 @@ def _shared_participant_blocks(
     if cache is None:
         cache = {}
         object.__setattr__(store, _BLOCK_CACHE_ATTRIBUTE, cache)
-    signature = (_scaler_identity(scaler), tuple(keys))
+    signature = (_scaler_identity(scaler), tuple(keys), input_feature_mode)
     blocks = cache.get(signature)
     if blocks is None:
         blocks = [
-            build_participant_block(store.participants[key], scaler=scaler)
+            build_participant_block(
+                store.participants[key], scaler=scaler,
+                input_feature_mode=input_feature_mode,
+            )
             for key in keys
         ]
         cache[signature] = blocks
@@ -211,7 +218,7 @@ class FastWindowSequenceDataset(WindowSequenceDataset):
         keys = sorted(self._participants)
         self._slot_of_key = {key: slot for slot, key in enumerate(keys)}
         self._blocks = _shared_participant_blocks(
-            self.participant_store, self.scaler, keys
+            self.participant_store, self.scaler, keys, self.input_feature_mode
         )
 
         windows = self.windows
@@ -242,6 +249,8 @@ class FastWindowSequenceDataset(WindowSequenceDataset):
             column = target if target in windows.columns else f"{task}_label"
             training_columns.append(windows[column].to_numpy(dtype=float))
         self._training_labels = np.stack(training_columns, axis=1).astype(np.float32)
+        if self._revision_training_arrays is not None:
+            self._training_labels = self._revision_training_arrays[0]
         if not np.isfinite(self._training_labels).all() or np.any(
             (self._training_labels < 0) | (self._training_labels > 1)
         ):
@@ -259,6 +268,8 @@ class FastWindowSequenceDataset(WindowSequenceDataset):
                 & windows[f"{task}_label"].notna().to_numpy()
             )
         self._label_mask = np.stack(mask_columns, axis=1)
+        if self._revision_training_arrays is not None:
+            self._label_mask = self._revision_training_arrays[1]
 
         validate_optional_loss_weights(windows)
         if any(f"{task}{LOSS_WEIGHT_SUFFIX}" in windows.columns for task in TASKS):
@@ -332,7 +343,7 @@ class FastWindowSequenceDataset(WindowSequenceDataset):
             raise ValueError("lower-censored CGM cannot enter model context features")
 
         sequence = block.features[start_index : end_index + 1].copy()
-        for position in range(len(ACTION_FIELDS)):
+        for position in range(len(block.action_last_observed)):
             sequence[:, _action_time_since_column(position)] = (
                 _time_since_from_last_observed(
                     block.action_last_observed[position], start_index, width

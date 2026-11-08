@@ -101,12 +101,17 @@ def _extra_panels(figure, rows, control, label, axes, oracle_sensitivity_30, ora
         colour = (G.NOMINAL["rose"] if row["arm"] == control["arm"]
                   else G.NOMINAL["blue"] if row["checkpoint_proxy"] == "current"
                   else G.NEUTRAL)
-        ax_e.plot([row["achieved_fapd"]], [index], marker="o", markersize=2.4,
-                  markerfacecolor=colour, markeredgecolor=colour, zorder=3)
+        leader = row["arm"] == control["arm"]
+        current = row["checkpoint_proxy"] == "current"
+        ax_e.plot([row["achieved_fapd"]], [index],
+                  marker="s" if leader else "o", markersize=2.4,
+                  markerfacecolor=colour if current or leader else "none",
+                  markeredgecolor=colour, zorder=3)
     ax_e.set_yticks([])
     ax_e.set_xlim(0.40, 0.62)
     ax_e.set_xticks([0.45, 0.5, 0.55, 0.6])
-    ax_e.set_xlabel("Achieved false alarms\nper participant-day")
+    ax_e.set_xlabel("False alarms per\nparticipant-day", linespacing=1.35,
+                    labelpad=2.0)
     ax_e.set_ylabel("Arms that fire")
 
     # f: what each arm buys for what it spends, with the two oracles for scale.
@@ -116,8 +121,12 @@ def _extra_panels(figure, rows, control, label, axes, oracle_sensitivity_30, ora
         colour = (G.NOMINAL["rose"] if row["arm"] == control["arm"]
                   else G.NOMINAL["blue"] if row["checkpoint_proxy"] == "current"
                   else G.NEUTRAL)
-        ax_f.plot([row["alarms_30"] / 1000.0], [row["sensitivity_30"]], marker="o",
-                  markersize=2.4, markerfacecolor=colour, markeredgecolor=colour,
+        leader = row["arm"] == control["arm"]
+        current = row["checkpoint_proxy"] == "current"
+        ax_f.plot([row["alarms_30"] / 1000.0], [row["sensitivity_30"]],
+                  marker="s" if leader else "o", markersize=2.4,
+                  markerfacecolor=colour if current or leader else "none",
+                  markeredgecolor=colour,
                   linestyle="none", zorder=3)
     for name, mark in (("oracle_label", "*"), ("oracle_future_glucose", "D")):
         ax_f.plot([oracle_alarms[name] / 1000.0], [oracle_sensitivity_30[name]], marker=mark,
@@ -175,14 +184,14 @@ def _extra_panels(figure, rows, control, label, axes, oracle_sensitivity_30, ora
         colour = G.NOMINAL["rose"] if leader else G.NEUTRAL
         ax_i.plot([0, 1], [by30[row["arm"]], by60[row["arm"]]], color=colour,
                   lw=0.9 if leader else 0.4, zorder=3 if leader else 2,
-                  marker="o", markersize=2.2 if leader else 1.6)
+                  marker="s" if leader else "o", markersize=2.2 if leader else 1.6)
         moved += abs(by30[row["arm"]] - by60[row["arm"]])
     ax_i.set_xlim(-0.2, 1.2)
     ax_i.set_xticks([0, 1])
     ax_i.set_xticklabels(["30 min", "60 min"], fontsize=5.0)
     ax_i.set_yticks([])
     ax_i.set_ylabel("Rank")
-    ax_i.set_xlabel(f"{moved} rank changes")
+    ax_i.set_xlabel(f"Total rank movement {moved}")
 
     # j: how many fits any of this is built on.
     counts: dict[int, int] = {}
@@ -276,8 +285,8 @@ def main(argv: list[str] | None = None) -> int:
     ax_a.set_yticklabels([label[row["arm"]] for row in rows], fontsize=5.2)
     ax_a.set_ylim(-0.85, len(rows) - 0.15)
     ax_a.set_xlim(0.0, 1.0)
-    ax_a.set_xlabel("Level 2 event sensitivity at nominal 0.5 alarms per\n"
-                    "participant-day")
+    ax_a.set_xlabel("Level 2 event sensitivity\n"
+                    "Nominal 0.5 false alarms / participant-day", linespacing=1.35)
     for value in primary.values():
         ax_a.axvline(value, color=G.NOMINAL["olive"], lw=0.6, ls=(0, (2.2, 1.6)),
                      zorder=0)
@@ -289,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         plt.Line2D([], [], marker="s", ms=3.0, lw=0.7, color=G.NOMINAL["rose"],
                    label="control"),
         plt.Line2D([], [], marker="o", ms=2.8, lw=0.7, color=G.NOMINAL["blue"],
-                   label="current checkpoint proxy"),
+                   label="current proxy or rule"),
         plt.Line2D([], [], marker="o", ms=2.8, lw=0.7, color=G.NEUTRAL,
                    markerfacecolor="none", label="superseded proxy, rescored"),
     ], loc="lower right", fontsize=5.0, handlelength=1.7, borderaxespad=0.4,
@@ -317,8 +326,10 @@ def main(argv: list[str] | None = None) -> int:
     # unreadable, the left side collides with the tick labels, and reaching past the
     # axes put one of them among the next panel's labels.
     ax_b.text(0.38, (glucose - lead) * 0.5, f"forecast\n{share:.0%}", fontsize=5.0,
+              linespacing=1.4,
               color=G.INK, ha="left", va="center", zorder=4)
     ax_b.text(0.38, gap * 0.945, f"rest\n{1 - share:.0%}", fontsize=5.0,
+              linespacing=1.4,
               color=G.INK, ha="left", va="center", zorder=4)
     ax_b.set_xlim(-0.45, 1.45)
 
@@ -378,13 +389,25 @@ def main(argv: list[str] | None = None) -> int:
         axis.spines["right"].set_visible(False)
     figure.text(0.012, 0.982, "a)", fontsize=7.0, fontweight="bold", color=G.INK,
                 va="top")
-    for axis, letter, dx in (
-        (ax_b, "b", 0.062), (ax_c, "c", 0.048), (ax_d, "d", 0.052),
-        (ax_e, "e", 0.052), (ax_f, "f", 0.052), (ax_g, "g", 0.052),
-        (ax_h, "h", 0.052), (ax_i, "i", 0.052), (ax_j, "j", 0.052),
+    figure.text(0.034, 0.982, "Arm ordering", fontsize=6.0, fontweight="bold",
+                 color=G.INK, va="top")
+    for axis, letter, title, dx in (
+        (ax_b, "b", "Oracle gap", 0.062),
+        (ax_c, "c", "Alarm counts", 0.048),
+        (ax_d, "d", "Two horizons", 0.052),
+        (ax_e, "e", "Achieved burden", 0.052),
+        (ax_f, "f", "Alarm trade-off", 0.052),
+        (ax_g, "g", "Method family", 0.052),
+        (ax_h, "h", "Checkpoint proxy", 0.052),
+        (ax_i, "i", "Rank movement", 0.052),
+        (ax_j, "j", "Fit counts", 0.052),
     ):
         box = axis.get_position()
-        figure.text(box.x0 - dx, box.y1 + 0.021, f"{letter})", fontsize=7.0,
+        header_y = box.y1 + (0.013 if letter in "hij" else 0.021)
+        header_x = box.x0 if letter in "hij" else box.x0 - dx
+        figure.text(header_x, header_y, f"{letter})", fontsize=7.0,
+                    fontweight="bold", color=G.INK, va="top")
+        figure.text(header_x + 0.022, header_y, title, fontsize=6.0,
                     fontweight="bold", color=G.INK, va="top")
 
     rising = sum(1 for r in rows if r["sensitivity_60"] > r["sensitivity_30"])

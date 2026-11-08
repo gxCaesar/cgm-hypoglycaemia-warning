@@ -3,46 +3,27 @@
 \begin{figure}[!htbp]
 \centering
 \includegraphics{figures/fig_budget.pdf}
-\caption{Primary sensitivity across nominal false-alarm budgets. The endpoint averages participant-macro level 2 event sensitivity equally over sources and the 30- and 60-minute horizons. Thresholds are fitted on calibration data at each budget and evaluated on the fixed selection partition.
-\textbf{a}, Current-glucose control and source-balanced LSTM over five training seeds. Shading spans one sample standard deviation (SD) on either side of the five-seed mean and describes optimization variability, not participant uncertainty.
-\textbf{b}, Control minus five-seed LSTM mean, divided by the sample SD at that budget. The contrast is negative at the tightest budget and positive at the others. Table~\ref{tab:budget_sweep} reports Holm-adjusted tests.
-\textbf{c}, Sample SD across seeds by budget, peaking at 0.375 false alarms per participant-day.
-The dashed vertical line marks the frozen nominal budget of 0.5 false alarms per participant-day.}
+\caption{Event sensitivity and achieved burden at the two evaluated nominal calibration budgets. \textbf{a}, \textbf{b}, Equal-source participant-macro sensitivity at 30 and 60 minutes. \textbf{c}, \textbf{d}, Equal-source participant-macro unmatched alarms per participant-calendar day at the corresponding horizons. Thresholds for nominal budgets of 0.5 and 1.0 are fitted on calibration participants. Lines join those two evaluated policies and do not represent an additional threshold sweep. Large markers average the five LSTM or TCN fits, with smaller marks showing individual seeds. Each classical arm contributes one fit or deterministic rule. All policies use base eligibility and the same 153 selection participants, 24{,}574 participant-calendar days, and 3{,}616 or 3{,}674 base events at 30 or 60 minutes. A common nominal budget does not imply equal achieved selection burden.}
 \label{sfig:budget}
 \end{figure}
 
 \begin{figure}[!htbp]
 \centering
 \includegraphics{figures/fig_frontier.pdf}
-\caption{Selection-partition sensitivity frontiers for earlier diagnostic fits.
-\textbf{a}, \textbf{b}, Best feasible participant-macro level 2 event sensitivity, averaged equally over sources, against achieved false alarms per participant-day at 30 and 60 minutes. Curves are envelopes over selection-partition threshold sweeps, not independently calibrated policies. Each retained sweep evaluates approximately three thousand two hundred thresholds spanning up to thirty-six false alarms per participant-day, with roughly one hundred and ninety below two. The vertical line marks an achieved rate of 0.5, numerically equal to the frozen nominal calibration budget.
-\textbf{c}, Four training seeds of the earlier TCN configuration at 30 minutes. Across-seed ranges at matched achieved rates are $0.032$ at 0.5, $0.115$ at 1.5 and $0.076$ at 0.125 false alarms per participant-day.
-These descriptive four-seed ranges differ from the five-seed balanced-LSTM standard deviations at refitted nominal budgets in Table~\ref{tab:budget_sweep}.}
+\caption{Eligibility trajectories for all six arms on the fixed selection population. Panels pair 30-minute and 60-minute horizons for the current-glucose control (\textbf{a}, \textbf{b}), linear extrapolation (\textbf{c}, \textbf{d}), summary logistic regression (\textbf{e}, \textbf{f}), XGBoost (\textbf{g}, \textbf{h}), LSTM (\textbf{i}, \textbf{j}) and TCN (\textbf{k}, \textbf{l}). Sensitivity averages event-positive participants within source and then weights sources equally. Solid curves use calibration-refitted thresholds at each eligibility cut and dashed curves retain the base calibration threshold. Both use a nominal base budget of 0.5 unmatched alarms per participant-calendar day. Neural curves average five fits, with thin lines showing individual seeds. The classical arms each use one fit or deterministic rule. Events and exposure remain fixed across cuts, including events with no permitted evaluable lead-in. No selection-partition threshold sweep is used.}
 \label{sfig:frontier}
 \end{figure}
 
 \begin{figure}[!htbp]
 \centering
 \includegraphics{figures/fig_reliability.pdf}
-\caption{Probability calibration at \textbf{a}, 30 minutes and \textbf{b}, 60 minutes on 5{,}952{,}251 eligible selection decisions from 153 participants.
-For each arm and horizon, ten empirical-quantile bins compare mean predicted risk with the frequency of positive decision-window labels. Score ties can produce unequal bin sizes. The outcome is window positivity, not a count of distinct events.
-The dotted diagonal denotes ideal calibration on logarithmic axes. All 56 displayed positive-rate bins show over-prediction. Four zero-positive bins, two for each deep arm at 30 minutes, are omitted from the logarithmic display but retained in the numerical analysis.
-Separately fitted logistic calibration slopes exceed one (Table~\ref{tab:quality}). This is not inferred from geometric slopes on the log--log plot.}
+\caption{Window-level probability diagnostics for all four classification heads on selection participants. \textbf{a}, \textbf{b}, Level 2 hypoglycaemia at 30 minutes. \textbf{c}, \textbf{d}, Level 2 hypoglycaemia at 60 minutes. \textbf{e}, \textbf{f}, Hyperglycaemia at 30 minutes. \textbf{g}, \textbf{h}, Hyperglycaemia at 60 minutes. Left panels show area under the precision--recall curve (AUPRC) with filled markers and area under the receiver operating characteristic curve (AUROC) with open markers. Right panels show Brier score with filled markers and expected calibration error (ECE) with open markers. The latter panels give the actual retained window count and positive-label frequency. Large markers average the five LSTM or TCN fits, with smaller marks showing individual seeds. Each classical arm contributes one fit or deterministic rule. All probabilities use temperatures fitted only on calibration participants. No selection-fitted transformation is applied. Labelled windows may overlap and are not independent event or participant replicates.}
 \label{sfig:reliability}
 \end{figure}
 
 \begin{figure}[!htbp]
 \centering
 \includegraphics{figures/fig_seed_variance.pdf}
-\caption{Optimization variability across five source-balanced LSTM fits on one fixed dataset and split.
-The primary endpoint averages participant-macro level 2 event sensitivity equally over sources and the 30- and 60-minute horizons.
-\textbf{a}, Primary values with horizon-averaged achieved false-alarm rates. Shading is the mean $\pm$ one sample standard deviation (SD).
-\textbf{b}, \textbf{c}, Selection-partition sensitivity-frontier envelopes at 30 and 60 minutes. The vertical line marks achieved 0.5 false alarms per participant-day.
-\textbf{d}, Per-cohort 30-minute sensitivity across seeds, ordered by the seed mean, with lines spanning seed minima and maxima.
-\textbf{e}, Within-cohort population SD across the five seeds (divisor five), against scored selection participants. It ranges from $0.29$ in a two-participant cohort to $0.04$ in the largest cohort.
-\textbf{f}, Sample SD (divisor four) of the primary point estimate, $0.0505$, and normalized area under each horizon's frontier over achieved false-alarm rates from zero to two, $0.0315$ at 30 minutes and $0.0202$ at 60 minutes.
-\textbf{g}--\textbf{i}, Achieved false-alarm rates, refractory-surviving alarms and matched events at both horizons. Nine of ten seed--horizon rates exceed the nominal budget, as do all five horizon-averaged rates.
-\textbf{j}, Paired horizon sensitivities across seeds.
-These summaries measure optimization variability, not participant uncertainty. Differences paired by seed against the selected composition have sample SD $0.0174$.}
+\caption{Source-resolved model-seed variation under base eligibility. Heatmaps show participant-macro event sensitivity for LSTM at \textbf{a}, 30 minutes and \textbf{b}, 60 minutes, and TCN at \textbf{c}, 30 minutes and \textbf{d}, 60 minutes. Each cell is one actual source--seed--horizon result. The four heatmaps share a zero-to-one scale. Row labels give event-positive participant counts, identical at both horizons, and columns identify the five training seeds. Thresholds are fitted on calibration data at a nominal 0.5 unmatched alarms per participant-calendar day. \textbf{e}, \textbf{f}, Maximum-minus-minimum sensitivity across five seeds for LSTM and TCN, with filled circles for 30 minutes and open squares for 60 minutes. All fits share the same data and participant split. These ranges describe optimisation variation rather than participant sampling uncertainty.}
 \label{sfig:seed_variance}
 \end{figure}

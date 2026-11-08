@@ -122,10 +122,9 @@ def coverage(profile: Path) -> str:
         "participants without eligible modelling windows. En-dashes denote exact zero "
         "coverage, rather than missing or inapplicable values. Basal and bolus denote "
         "the "
-        "corresponding insulin channels. Insulin denotes total insulin; Carbs, "
-        "carbohydrate; "
-        "Meal, meal label; HR, heart rate; Energy, energy expenditure; Skin T, skin "
-        "temperature; Air T, ambient temperature; EDA, electrodermal activity. Repl. "
+        "corresponding insulin channels. Insulin denotes total insulin, Carbs carbohydrate, "
+        "Meal meal label and HR heart rate. Energy denotes energy expenditure, "
+        "Skin T skin temperature, Air T ambient temperature and EDA electrodermal activity. Repl. "
         "and "
         "Shang. denote ReplaceBG and Shanghai T1DM."
     )
