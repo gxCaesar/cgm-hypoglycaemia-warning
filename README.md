@@ -47,7 +47,8 @@ applicable licence terms. The external cohort has its own
 access conditions. Keep development and external inputs in separate paths. Never use
 external labels for model, checkpoint, threshold or analysis selection.
 
-Aggregate numerical results and plot inputs are provided in the companion
+Aggregate numerical results and plot inputs are archived on
+[Zenodo, version 2.0.0](https://doi.org/10.5281/zenodo.24072450) and provided in the companion
 [Supplementary Data](https://github.com/gxCaesar/cgm-hypoglycaemia-warning/releases/download/v0.3.0/cgm-hypoglycaemia-warning-supporting-data.zip) under CC BY 4.0. The underlying clinical data retain
 their original access conditions and licence terms. Participant records,
 temporal traces and fitted weights are not redistributed.
