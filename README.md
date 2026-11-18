@@ -49,11 +49,10 @@ applicable licence terms. The external cohort has its own
 access conditions. Keep development and external inputs in separate paths. Never use
 external labels for model, checkpoint, threshold or analysis selection.
 
-The companion Supplementary Data supplies the numerical results and aggregate
-plotting inputs for this manuscript. It is distributed under CC BY 4.0. Earlier
-repository releases and archived data are separate versions and do not contain
-these revised results. Clinical records, individual trajectories and fitted weights
-are excluded and retain their original access conditions.
+The numerical results and aggregate figure inputs for software v0.4.0 are
+available under CC BY 4.0. [Download the companion dataset, version 3.0.0](https://doi.org/10.5281/zenodo.24332015).
+Clinical records and individual trajectories remain subject to the original providers'
+access conditions. The archive excludes participant-level data and fitted weights.
 
 ## Licensed-data preparation and analysis
 
