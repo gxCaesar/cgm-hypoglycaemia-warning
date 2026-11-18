@@ -124,6 +124,50 @@ def _calibrate(context, predictions, config):
     )
 
 
+def test_inner_callbacks_expose_supported_objective_without_relabeling_estimand():
+    replays, predictions, config = _fixture()
+    for partition, replay in replays.items():
+        for horizon in (30, 60):
+            replay.events[horizon] = (
+                replay.events[horizon]
+                .loc[replay.events[horizon].source_id.eq("A")]
+                .copy()
+            )
+            for table in (replay.timeline, predictions[partition]):
+                table.loc[
+                    table.source_id.eq("B"),
+                    [
+                        f"severe_hypo_{horizon}_label",
+                        f"hypo_{horizon}_training_target",
+                    ],
+                ] = 0
+    context = _context(replays, sensitivity_source_policy="supported_sources")
+    score, tie, details = context.checkpoint_proxy(
+        predictions["selection"],
+        source_order=("A", "B"),
+        candidate_count=None,
+    )
+    assert np.isfinite((score, tie)).all()
+    for curve in details["horizons"].values():
+        assert curve["excluded_undefined_sensitivity_sources"] == ["B"]
+        assert curve["sensitivity_objective_source_order"] == ["A"]
+    tasks, operational = _calibrate(context, predictions, config)
+    for horizon in (30, 60):
+        policy = tasks[f"hypo_{horizon}"]["fixed_frame_policies"]["0.5"]
+        assert np.isfinite(policy["achieved_objective_fixed_sensitivity"])
+        assert np.isnan(
+            policy["achieved_equal_source_participant_macro_fixed_sensitivity"]
+        )
+        assert policy["excluded_undefined_sensitivity_sources"] == ("B",)
+    assert np.isnan(operational["primary_equal_horizon_mean_fixed_sensitivity"])
+    with pytest.raises(ValueError, match="undefined"):
+        _context(replays).checkpoint_proxy(
+            predictions["selection"],
+            source_order=("A", "B"),
+            candidate_count=None,
+        )
+
+
 def test_checkpoint_matches_raw_fixed_frontier_and_legacy_triple_without_ledgers(
     monkeypatch,
 ):

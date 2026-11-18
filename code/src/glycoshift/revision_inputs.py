@@ -24,6 +24,46 @@ class ReplayInputs:
     audit: dict
 
 
+CONFIRMATION_CONTRACT = "2026-11-09-complete-confirmation"
+
+
+def validate_confirmation_masks(timeline: pd.DataFrame, contract: str | None) -> None:
+    """Reject stale task masks before fitting a corrected replay.
+
+    The continuity flags are produced from the normalized time axis by the
+    builder. This gate checks their downstream use without consulting outcomes
+    to decide completeness or replacing established positive labels.
+    """
+    if contract is None:
+        return
+    if contract != CONFIRMATION_CONTRACT:
+        raise ValueError("unsupported ascertainment contract")
+    historical = _strict_bool(timeline, "base_evaluable")
+    glucose = pd.to_numeric(timeline["cgm_last"], errors="coerce").to_numpy(float)
+    if not np.isfinite(glucose).all():
+        raise ValueError("confirmation contract requires finite anchor glucose")
+    for horizon in (30, 60):
+        complete = _strict_bool(timeline, f"confirmation_complete_{horizon}")
+        base = _strict_bool(timeline, f"base_evaluable_{horizon}")
+        if not np.array_equal(base, historical & complete):
+            raise ValueError(f"{horizon} confirmation/base mask mismatch")
+        if horizon == 30 and not np.array_equal(base, historical):
+            raise ValueError("30-minute frame must retain historical completeness")
+        for kind, label_kind in (("hypo", "severe_hypo"), ("hyper", "hyper")):
+            allowed = (
+                glucose >= 54 if kind == "hypo"
+                else ~_strict_bool(timeline, "hyper_currently_active")
+            )
+            task = f"{kind}_{horizon}"
+            mask = _strict_bool(timeline, f"{task}_training_mask")
+            if not np.array_equal(mask, base & allowed):
+                raise ValueError(f"{task} confirmation/training mask mismatch")
+            target = timeline[f"{task}_training_target"].to_numpy(float)
+            labels = timeline[f"{label_kind}_{horizon}_label"].to_numpy(float)
+            if not np.isin(labels, (0, 1)).all() or not np.array_equal(target, labels):
+                raise ValueError(f"{task} confirmed labels must remain unchanged")
+
+
 def _strict_bool(frame: pd.DataFrame, column: str) -> np.ndarray:
     if column not in frame:
         raise ValueError(f"missing observed-anchor provenance: {column}")
@@ -94,8 +134,18 @@ def build_participant_replay(
             "normalized CGM must be finite; unresolved gaps must be absent rows"
         )
     protocol = config["protocol"]
+    ascertainment = protocol.get("ascertainment_contract")
+    if ascertainment not in (None, "2026-11-09-complete-confirmation"):
+        raise ValueError("unsupported ascertainment contract")
     sample = int(protocol["sample_minutes"])
     horizons = tuple(int(h) for h in protocol["horizons_minutes"])
+    if ascertainment and (
+        sample != 5 or horizons != (30, 60)
+        or int(protocol["minimum_consecutive_samples"]) != 3
+    ):
+        raise ValueError(
+            "complete-confirmation contract requires 5min/30,60/three readings"
+        )
     ncontext = int(float(protocol["context_hours"]) * 60 / sample)
     if (
         sample <= 0
@@ -222,7 +272,16 @@ def build_participant_replay(
             )
     base_events, exposures = {}, {}
     for horizon in horizons:
-        timeline[f"base_evaluable_{horizon}"] = base
+        horizon_base = base.copy()
+        if ascertainment:
+            confirmation_end = end + max(60, horizon + 10) // sample
+            confirmation_safe = np.minimum(confirmation_end, len(ordered) - 1)
+            complete = (confirmation_end < len(ordered)) & (
+                discontinuities[confirmation_safe] == discontinuities[end]
+            )
+            timeline[f"confirmation_complete_{horizon}"] = complete
+            horizon_base &= complete
+        timeline[f"base_evaluable_{horizon}"] = horizon_base
         target_index = end + horizon // sample
         target_exists = target_index < len(ordered)
         target_safe = np.minimum(target_index, len(ordered) - 1)
@@ -241,8 +300,8 @@ def build_participant_replay(
                 if task_kind == "hypo"
                 else ~timeline["hyper_currently_active"].to_numpy(bool)
             )
-            timeline[f"{task_kind}_{horizon}_training_mask"] = base & allowed
-        lead_times = ns[end[base]]
+            timeline[f"{task_kind}_{horizon}_training_mask"] = horizon_base & allowed
+        lead_times = ns[end[horizon_base]]
         event_rows = []
         for event in catalogues["severe_hypo"]:
             first = np.searchsorted(
@@ -263,13 +322,15 @@ def build_participant_replay(
             columns=["source_id", "participant_id", "event_id", "event_onset"],
         )
         exposure_rows = []
-        if base.any():
+        if horizon_base.any():
             exposure_rows.append(
                 {
                     "source_id": source_id,
                     "participant_id": participant_id,
-                    "patient_days": int(timeline.loc[base, "patient_day"].nunique()),
-                    "observation_minutes": int(base.sum()) * sample,
+                    "patient_days": int(
+                        timeline.loc[horizon_base, "patient_day"].nunique()
+                    ),
+                    "observation_minutes": int(horizon_base.sum()) * sample,
                 }
             )
         exposures[horizon] = pd.DataFrame(
@@ -281,6 +342,7 @@ def build_participant_replay(
                 "observation_minutes",
             ],
         )
+    validate_confirmation_masks(timeline, ascertainment)
     return ReplayInputs(
         timeline,
         base_events,
@@ -299,6 +361,7 @@ def build_participant_replay(
             "participant_passes_day_qc": participant_qc,
             "base_event_counts": {str(h): len(base_events[h]) for h in horizons},
             "base_uses_maximum_horizon_completeness": max(horizons),
+            "ascertainment_contract": ascertainment,
             "lower_censor_column_absence_authorized": (
                 lower_censoring_absent_means_false
             ),

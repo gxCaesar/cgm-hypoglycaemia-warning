@@ -82,6 +82,10 @@ class FixedFrameAlarmPolicy:
     base_event_count: int
     patient_days: int
     observation_minutes: float
+    sensitivity_source_policy: str
+    sensitivity_objective_source_order: tuple[str, ...]
+    excluded_undefined_sensitivity_sources: tuple[str, ...]
+    achieved_objective_fixed_sensitivity: float
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -592,6 +596,23 @@ class _FixedFrameParticipantSweep(_ParticipantOperationalSweep):
         return detected
 
 
+def _sensitivity_objective_sources(
+    events: pd.DataFrame, *, spec: FixedFrameSpec, sensitivity_source_policy: str,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if sensitivity_source_policy not in ("all_sources", "supported_sources"):
+        raise ValueError(
+            "sensitivity_source_policy must be all_sources or supported_sources"
+        )
+    supported = set(events["source_id"])
+    objective = tuple(source for source in spec.source_order if source in supported)
+    excluded = tuple(source for source in spec.source_order if source not in supported)
+    if excluded and sensitivity_source_policy == "all_sources":
+        raise ValueError("base sensitivity is undefined for at least one source")
+    if not objective:
+        raise ValueError("base sensitivity is undefined for every source")
+    return objective, excluded
+
+
 def _fixed_frame_sweep_points(
     frame: pd.DataFrame,
     events: pd.DataFrame,
@@ -601,6 +622,7 @@ def _fixed_frame_sweep_points(
     glucose_cut: float,
     candidates: np.ndarray,
     retain_all: bool = False,
+    sensitivity_source_policy: str = "all_sources",
 ) -> list[dict[str, float]]:
     """Exact cached-array sweep; never builds per-threshold DataFrame ledgers."""
     participant_counts = exposure.groupby("source_id", observed=True).size().reindex(
@@ -609,8 +631,10 @@ def _fixed_frame_sweep_points(
     positive_counts = events[_KEYS].drop_duplicates().groupby(
         "source_id", observed=True
     ).size().reindex(spec.source_order, fill_value=0).to_numpy(dtype=int)
-    if np.any(positive_counts == 0):
-        raise ValueError("base sensitivity is undefined for at least one source")
+    objective_sources, _ = _sensitivity_objective_sources(
+        events, spec=spec, sensitivity_source_policy=sensitivity_source_policy
+    )
+    objective_mask = np.isin(spec.source_order, objective_sources)
     eligible = frame.loc[_online_eligible(frame, glucose_cut)].reset_index(drop=True)
     source_indices = {source: index for index, source in enumerate(spec.source_order)}
     events_by_key = {
@@ -661,7 +685,9 @@ def _fixed_frame_sweep_points(
             state.fapd_contribution = fapd
         point = {
             "threshold": float(threshold),
-            "fixed_sensitivity": float(np.mean(sensitivity_sums / positive_counts)),
+            "fixed_sensitivity": float(np.mean(
+                sensitivity_sums[objective_mask] / positive_counts[objective_mask]
+            )),
             "achieved_fapd": float(np.mean(fapd_sums / participant_counts)),
         }
         if not np.isfinite(list(point.values())).all():
@@ -686,8 +712,14 @@ def selection_fixed_frame_curve(
     fapd_max: float = 2.0,
     candidate_count: int | None = None,
     include_raw_points: bool = False,
+    sensitivity_source_policy: str = "all_sources",
 ) -> dict[str, Any]:
-    """Exact right-continuous feasible fixed-sensitivity envelope and AUC."""
+    """Exact feasible sensitivity envelope for the explicit source objective.
+
+    ``supported_sources`` is an opt-in inner selection objective. It excludes
+    undefined sensitivity terms but retains all exposed sources in burden.
+    It does not redefine the full-source evaluation estimand.
+    """
     if (
         not np.isfinite((glucose_cut, fapd_min, fapd_max)).all()
         or fapd_min < 0 or fapd_max <= fapd_min
@@ -695,6 +727,9 @@ def selection_fixed_frame_curve(
         raise ValueError("finite glucose cut and 0 <= FAPD min < max are required")
     frame, events, exposure = _validated_inputs(
         timeline, base_events, base_exposure, spec
+    )
+    objective_sources, excluded = _sensitivity_objective_sources(
+        events, spec=spec, sensitivity_source_policy=sensitivity_source_policy
     )
     scores = frame.loc[
         _online_eligible(frame, glucose_cut), spec.score_column
@@ -708,6 +743,7 @@ def selection_fixed_frame_curve(
     points = _fixed_frame_sweep_points(
         frame, events, exposure, spec=spec, glucose_cut=glucose_cut,
         candidates=candidates, retain_all=include_raw_points,
+        sensitivity_source_policy=sensitivity_source_policy,
     )
     by_fapd: dict[float, float] = {}
     for point in points:
@@ -752,6 +788,9 @@ def selection_fixed_frame_curve(
         "threshold_count": len(candidates), "frontier": frontier,
         "integration_rule": "right_continuous_step_integral_of_feasible_envelope",
         "sweep_algorithm": "fixed_frame_exact_incremental_refractory",
+        "sensitivity_source_policy": sensitivity_source_policy,
+        "sensitivity_objective_source_order": list(objective_sources),
+        "excluded_undefined_sensitivity_sources": list(excluded),
         "candidate_rule": (
             "all_unique_online_eligible_scores_plus_no_alarm_sentinel"
             if candidate_count is None else
@@ -773,6 +812,7 @@ def fit_fixed_frame_alarm_policy(
     glucose_cut: float = 54.0,
     nominal_fapd: float = 0.5,
     candidate_count: int | None = None,
+    sensitivity_source_policy: str = "all_sources",
 ) -> FixedFrameAlarmPolicy:
     """Calibration-only refit; maximize fixed sensitivity, then threshold.
 
@@ -780,6 +820,8 @@ def fit_fixed_frame_alarm_policy(
     including decisions outside retrospective exposure because these affect
     refractory history. If there are no eligible decisions, retain only the
     finite no-alarm sentinel derived from the complete timeline.
+    The opt-in supported-source objective changes only sensitivity optimization;
+    burden and the returned full-source sensitivity retain their full estimands.
     """
     if partition != "calibration":
         raise ValueError("fixed-frame policy must be fit on calibration only")
@@ -795,6 +837,9 @@ def fit_fixed_frame_alarm_policy(
     frame, events, exposure = _validated_inputs(
         timeline, base_events, base_exposure, spec
     )
+    objective_sources, excluded = _sensitivity_objective_sources(
+        events, spec=spec, sensitivity_source_policy=sensitivity_source_policy
+    )
     eligible_scores = frame.loc[
         _online_eligible(frame, glucose_cut), spec.score_column
     ].to_numpy(dtype=float)
@@ -807,7 +852,7 @@ def fit_fixed_frame_alarm_policy(
         candidates = candidates[-1:]
     points = _fixed_frame_sweep_points(
         frame, events, exposure, spec=spec, glucose_cut=glucose_cut,
-        candidates=candidates,
+        candidates=candidates, sensitivity_source_policy=sensitivity_source_policy,
     )
     feasible = [point for point in points if point["achieved_fapd"] <= nominal_fapd]
     if not feasible:
@@ -820,9 +865,11 @@ def fit_fixed_frame_alarm_policy(
         glucose_cut=float(glucose_cut),
     )
     summary = selected.summary
+    objective_sensitivity = float(selected.sources.set_index("source_id").loc[
+        list(objective_sources), "fixed_sensitivity"
+    ].to_numpy(dtype=float).mean())
     for observed, expected in (
-        (summary["equal_source_participant_macro_fixed_sensitivity"],
-         best["fixed_sensitivity"]),
+        (objective_sensitivity, best["fixed_sensitivity"]),
         (summary["equal_source_participant_macro_unmatched_alarms_per_patient_day"],
          best["achieved_fapd"]),
     ):
@@ -848,6 +895,10 @@ def fit_fixed_frame_alarm_policy(
         base_event_count=summary["base_event_count"],
         patient_days=summary["patient_days"],
         observation_minutes=summary["observation_minutes"],
+        sensitivity_source_policy=sensitivity_source_policy,
+        sensitivity_objective_source_order=objective_sources,
+        excluded_undefined_sensitivity_sources=excluded,
+        achieved_objective_fixed_sensitivity=objective_sensitivity,
     )
 
 
@@ -870,13 +921,23 @@ def joint_fixed_frame_bootstrap(
     bootstrap_seed: int = 20260810,
     metric: str = "fixed_sensitivity",
     include_replicates: bool = False,
+    participant_groups: Mapping[tuple[str, str], str] | None = None,
+    allow_horizon_population_difference: bool = False,
 ) -> dict[str, Any]:
-    """Joint paired inference with one participant draw across all comparisons.
+    """Joint paired inference with one group draw across all comparisons.
 
     Supply every arm/cut requested by the explicit contrasts for every horizon
     and seed. Smaller *complete* horizon/seed sets are intended for toy oracles.
-    Sensitivity draws preserve source-by-horizon-positivity-pattern counts.
-    Burden is a separate invocation/draw over all base participants.
+    By default each source-scoped participant is its own group. An explicit
+    mapping must cover every (source_id, participant_id) with a non-empty string
+    group ID; a group cannot span sources. Group members retain separate rows
+    and participant weights, but always receive the same draw multiplicity.
+    Sensitivity strata use each group's union of horizon positivity patterns.
+    Burden is a separate invocation/draw over all base groups.
+    With horizon population differences explicitly enabled, draws use the union
+    of records and each horizon retains only its own exposed members. Undefined
+    draws are counted and make the corresponding interval undefined; they are
+    never redrawn or silently omitted.
     """
     allowed_metrics = {
         "fixed_sensitivity", "unmatched_alarms_per_patient_day",
@@ -884,6 +945,8 @@ def joint_fixed_frame_bootstrap(
     }
     if metric not in allowed_metrics:
         raise ValueError(f"unsupported joint bootstrap metric: {metric}")
+    if not isinstance(allow_horizon_population_difference, (bool, np.bool_)):
+        raise ValueError("horizon population opt-in must be an explicit boolean")
     for name, sequence in (
         ("source_order", source_order), ("horizon_order", horizon_order),
         ("model_seed_order", model_seed_order),
@@ -915,6 +978,7 @@ def joint_fixed_frame_bootstrap(
     events_by_horizon: dict[int, pd.DataFrame] = {}
     arrays: dict[FixedFrameKey, np.ndarray] = {}
     common_keys: pd.DataFrame | None = None
+    keys_by_horizon: dict[int, pd.DataFrame] = {}
     for key in sorted(
         expected, key=lambda value: (
             value.horizon_minutes, value.model_seed, value.arm, value.glucose_cut
@@ -936,12 +1000,26 @@ def joint_fixed_frame_bootstrap(
         _identifiers(table, _KEYS, "bootstrap participant table")
         if table.duplicated(_KEYS).any():
             raise ValueError("bootstrap participant keys are not unique")
-        if set(table["source_id"]) != set(source_order):
+        table_sources = set(table["source_id"])
+        if (
+            not table_sources.issubset(source_order)
+            or (not allow_horizon_population_difference and table_sources != set(
+                source_order
+            ))
+        ):
             raise ValueError("bootstrap source set is incomplete")
         table = table.sort_values(_KEYS).reset_index(drop=True)
+        horizon = key.horizon_minutes
+        if horizon not in keys_by_horizon:
+            keys_by_horizon[horizon] = table[_KEYS]
+        elif not keys_by_horizon[horizon].equals(table[_KEYS]):
+            raise ValueError("same-horizon bootstrap participant rows differ")
         if common_keys is None:
             common_keys = table[_KEYS]
-        elif not common_keys.equals(table[_KEYS]):
+        elif (
+            not allow_horizon_population_difference
+            and not common_keys.equals(table[_KEYS])
+        ):
             raise ValueError("joint bootstrap requires identical participant rows")
         event_truth = evaluation.events[_EVENT_TRUTH].sort_values(
             _EVENT_KEYS
@@ -956,7 +1034,6 @@ def joint_fixed_frame_bootstrap(
                 "participant base event truth differs from event catalogue"
             )
         current_truth = table[truth_columns]
-        horizon = key.horizon_minutes
         if horizon not in truth_by_horizon:
             truth_by_horizon[horizon] = current_truth
             events_by_horizon[horizon] = event_truth
@@ -993,27 +1070,100 @@ def joint_fixed_frame_bootstrap(
         arrays[key] = values
     if common_keys is None:
         raise AssertionError("validated evaluations unexpectedly empty")
+    if allow_horizon_population_difference:
+        common_keys = pd.concat(list(keys_by_horizon.values())).drop_duplicates(
+            _KEYS
+        ).sort_values(_KEYS).reset_index(drop=True)
+        if common_keys.empty:
+            raise ValueError("bootstrap requires at least one exposed participant")
+        union_index = pd.MultiIndex.from_frame(common_keys)
+        presence = np.column_stack([
+            union_index.isin(pd.MultiIndex.from_frame(keys_by_horizon[horizon]))
+            for horizon in horizon_order
+        ])
+        for key, values in arrays.items():
+            arrays[key] = pd.Series(
+                values, index=pd.MultiIndex.from_frame(keys_by_horizon[
+                    key.horizon_minutes
+                ])
+            ).reindex(union_index).to_numpy(dtype=float)
+        positivity = np.column_stack([
+            truth_by_horizon[horizon].set_index(_KEYS)["base_event_count"].reindex(
+                union_index, fill_value=0
+            ).to_numpy() > 0
+            for horizon in horizon_order
+        ])
+    else:
+        presence = np.ones((len(common_keys), len(horizon_order)), dtype=bool)
+        positivity = np.column_stack([
+            truth_by_horizon[horizon]["base_event_count"].to_numpy() > 0
+            for horizon in horizon_order
+        ])
 
-    positivity = np.column_stack([
-        truth_by_horizon[horizon]["base_event_count"].to_numpy() > 0
-        for horizon in horizon_order
+    participant_keys = list(common_keys.itertuples(index=False, name=None))
+    if participant_groups is not None:
+        if not isinstance(participant_groups, Mapping):
+            raise ValueError("participant_groups must be a complete mapping")
+        for pair, group_id in participant_groups.items():
+            if (
+                not isinstance(pair, tuple) or len(pair) != 2
+                or any(
+                    not isinstance(value, str) or not value.strip() for value in pair
+                )
+                or not isinstance(group_id, str) or not group_id.strip()
+            ):
+                raise ValueError(
+                    "participant_groups requires non-empty string source, "
+                    "participant, and group IDs"
+                )
+        if set(participant_groups) != set(participant_keys):
+            raise ValueError(
+                "participant_groups must exactly cover source/participant keys"
+            )
+        group_sources: dict[str, str] = {}
+        for (source, _), group_id in participant_groups.items():
+            if group_id in group_sources and group_sources[group_id] != source:
+                raise ValueError("participant groups cannot span sources")
+            group_sources[group_id] = source
+    # The first-member order preserves the original RNG path for singleton
+    # groups, including the implicit identity mapping.
+    member_lists: dict[tuple[str, str], list[int]] = {}
+    for index, (source, participant) in enumerate(participant_keys):
+        group_id = (
+            participant if participant_groups is None
+            else participant_groups[source, participant]
+        )
+        member_lists.setdefault((source, group_id), []).append(index)
+    group_members = [
+        np.asarray(members, dtype=int) for members in member_lists.values()
+    ]
+    singleton_groups = all(len(members) == 1 for members in group_members)
+    group_sources_array = np.asarray([source for source, _ in member_lists])
+
+    group_positivity = np.asarray([
+        positivity[members].any(axis=0) for members in group_members
     ])
     source_values = common_keys["source_id"].to_numpy()
     groups: list[np.ndarray] = []
     stratum_counts: list[dict[str, Any]] = []
+    source_group_counts: list[dict[str, Any]] = []
     for source in source_order:
         source_indices = np.flatnonzero(source_values == source)
+        source_groups = np.flatnonzero(group_sources_array == source)
         if metric == "fixed_sensitivity":
             for column, horizon in enumerate(horizon_order):
-                if not positivity[source_indices, column].any():
+                if (
+                    not allow_horizon_population_difference
+                    and not positivity[source_indices, column].any()
+                ):
                     raise ValueError(
                         f"base sensitivity undefined: source={source}, "
                         f"horizon={horizon}"
                     )
-            patterns = sorted(set(map(tuple, positivity[source_indices])))
+            patterns = sorted(set(map(tuple, group_positivity[source_groups])))
             for pattern in patterns:
-                indices = source_indices[
-                    np.all(positivity[source_indices] == pattern, axis=1)
+                indices = source_groups[
+                    np.all(group_positivity[source_groups] == pattern, axis=1)
                 ]
                 if not any(pattern):
                     continue
@@ -1021,13 +1171,23 @@ def joint_fixed_frame_bootstrap(
                 stratum_counts.append({
                     "source_id": source,
                     "positivity_pattern": [bool(value) for value in pattern],
-                    "participant_count": len(indices),
+                    "participant_count": sum(len(group_members[i]) for i in indices),
+                    "group_count": len(indices),
                 })
         else:
-            groups.append(source_indices)
+            groups.append(source_groups)
             stratum_counts.append({
-                "source_id": source, "participant_count": len(source_indices)
+                "source_id": source, "participant_count": len(source_indices),
+                "group_count": len(source_groups),
             })
+        source_group_counts.append({
+            "source_id": source, "participant_count": len(source_indices),
+            "group_count": len(source_groups),
+            "resampled_group_count": int(
+                group_positivity[source_groups].any(axis=1).sum()
+                if metric == "fixed_sensitivity" else len(source_groups)
+            ),
+        })
 
     def estimate(
         indices: np.ndarray, terms: Mapping[tuple[str, float], float]
@@ -1038,8 +1198,13 @@ def joint_fixed_frame_bootstrap(
                 source_values_for_contrast = []
                 for source in source_order:
                     selected = indices[source_values[indices] == source]
+                    if allow_horizon_population_difference:
+                        selected = selected[presence[selected, h_index]]
                     if metric == "fixed_sensitivity":
                         selected = selected[positivity[selected, h_index]]
+                    if not len(selected):
+                        source_values_for_contrast.append(float("nan"))
+                        continue
                     value = sum(
                         coefficient * arrays[
                             FixedFrameKey(arm, cut, horizon, seed)
@@ -1050,7 +1215,12 @@ def joint_fixed_frame_bootstrap(
                 per_horizon_seed[h_index, s_index] = np.mean(source_values_for_contrast)
         return per_horizon_seed
 
-    identity = np.concatenate(groups)
+    identity_groups = np.concatenate(groups) if groups else np.empty(0, dtype=int)
+    identity = identity_groups if singleton_groups or not len(identity_groups) else (
+        np.concatenate([
+        group_members[index] for index in identity_groups
+        ])
+    )
     point = {name: estimate(identity, terms) for name, terms in contrasts.items()}
     draws = {
         name: np.empty((replicates, len(horizon_order), len(model_seed_order)))
@@ -1058,36 +1228,72 @@ def joint_fixed_frame_bootstrap(
     }
     rng = np.random.default_rng(bootstrap_seed)
     for replicate in range(replicates):
-        indices = np.concatenate([
+        sampled_groups = np.concatenate([
             rng.choice(group, size=len(group), replace=True) for group in groups
-        ])
+        ]) if groups else np.empty(0, dtype=int)
+        indices = sampled_groups if singleton_groups or not len(sampled_groups) else (
+            np.concatenate([group_members[index] for index in sampled_groups])
+        )
         for name, terms in contrasts.items():
             draws[name][replicate] = estimate(indices, terms)
     output: dict[str, Any] = {
         "metric": metric, "replicates": replicates,
         "bootstrap_seed": bootstrap_seed, "model_seeds": list(model_seed_order),
         "horizons": list(horizon_order), "source_order": list(source_order),
-        "resampling_unit": "source_scoped_participant",
+        "resampling_unit": (
+            "source_scoped_correlated_participant_group"
+            if not singleton_groups
+            else "source_scoped_participant"
+        ),
         "population": (
-            "event_positive_in_at_least_one_horizon" if metric == "fixed_sensitivity"
-            else "all_base_participants"
+            (
+                "event_positive_in_at_least_one_horizon" if singleton_groups else
+                "groups_with_event_positive_member_in_at_least_one_horizon"
+            ) if metric == "fixed_sensitivity" else "all_base_participants"
         ),
         "stratification": (
-            "source_by_horizon_positivity_pattern" if metric == "fixed_sensitivity"
-            else "source"
+            (
+                "source_by_horizon_positivity_pattern" if singleton_groups else
+                "source_by_group_union_horizon_positivity_pattern"
+            ) if metric == "fixed_sensitivity" else "source"
         ),
         "stratum_counts": stratum_counts,
+        "group_count": len(group_members),
+        "resampled_group_count": sum(len(group) for group in groups),
+        "source_group_counts": source_group_counts,
         "aggregation": "equal_source_then_equal_horizon_and_model_seed",
         "contrasts": {},
     }
+    output["inference_unit"] = output["resampling_unit"]
+    if allow_horizon_population_difference:
+        output["horizon_population_policy"] = "union_draw_horizon_specific_exposure"
+        output["horizon_population_counts"] = [
+            {
+                "source_id": source, "horizon_minutes": horizon,
+                "participant_count": int((presence[:, column] & (
+                    source_values == source
+                )).sum()),
+                "group_count": sum(
+                    bool(presence[members, column].any())
+                    for (group_source, _), members in zip(
+                        member_lists, group_members, strict=True
+                    ) if group_source == source
+                ),
+                "event_positive_participant_count": int((positivity[:, column] & (
+                    source_values == source
+                )).sum()),
+            }
+            for column, horizon in enumerate(horizon_order) for source in source_order
+        ]
     for name in contrasts:
         values = draws[name].mean(axis=(1, 2))
-        if not np.isfinite(values).all():
+        undefined = int((~np.isfinite(values)).sum())
+        if undefined and not allow_horizon_population_difference:
             raise ValueError("joint bootstrap produced a non-finite draw")
         result: dict[str, Any] = {
             "estimate": float(point[name].mean()),
-            "ci_low": float(np.quantile(values, 0.025)),
-            "ci_high": float(np.quantile(values, 0.975)),
+            "ci_low": None if undefined else float(np.quantile(values, 0.025)),
+            "ci_high": None if undefined else float(np.quantile(values, 0.975)),
             "coefficients": [
                 {"arm": arm, "glucose_cut": cut, "coefficient": coefficient}
                 for (arm, cut), coefficient in contrasts[name].items()
@@ -1098,13 +1304,28 @@ def joint_fixed_frame_bootstrap(
                 for index, seed in enumerate(model_seed_order)
             },
         }
+        if allow_horizon_population_difference:
+            result["undefined_replicate_count"] = undefined
         for index, horizon in enumerate(horizon_order):
             horizon_values = draws[name][:, index, :].mean(axis=1)
+            horizon_undefined = int((~np.isfinite(horizon_values)).sum())
             result["per_horizon"][horizon] = {
                 "estimate": float(point[name][index].mean()),
-                "ci_low": float(np.quantile(horizon_values, 0.025)),
-                "ci_high": float(np.quantile(horizon_values, 0.975)),
+                "ci_low": (
+                    None if horizon_undefined else float(np.quantile(
+                        horizon_values, 0.025
+                    ))
+                ),
+                "ci_high": (
+                    None if horizon_undefined else float(np.quantile(
+                        horizon_values, 0.975
+                    ))
+                ),
             }
+            if allow_horizon_population_difference:
+                result["per_horizon"][horizon]["undefined_replicate_count"] = (
+                    horizon_undefined
+                )
         if include_replicates:
             result["replicate_estimates"] = values.tolist()
             result["replicate_horizon_seed_estimates"] = draws[name].tolist()

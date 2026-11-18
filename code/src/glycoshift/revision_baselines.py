@@ -309,7 +309,9 @@ def _task_features(
     return summary
 
 
-def run_revision_baseline(config: dict, prepared: Path, *, baseline: str) -> Path:
+def run_revision_baseline(
+    config: dict, prepared: Path, *, baseline: str, outer_fold: int | None = None
+) -> Path:
     """Fit only train, calibrate only calibration, and report full causal timelines."""
     if baseline not in BASELINES:
         raise ValueError(f"unsupported revision classical baseline: {baseline}")
@@ -330,9 +332,16 @@ def run_revision_baseline(config: dict, prepared: Path, *, baseline: str) -> Pat
             f"refusing to overwrite an existing revision fit: {run_dir}"
         )
     validate_training_output_isolation(config, run_dir)
-    (frame, windows, audit), replays = load_replay_bundle(
-        Path(prepared), config, sequences=True
-    )
+    if outer_fold is None:
+        (frame, windows, audit), replays = load_replay_bundle(
+            Path(prepared), config, sequences=True
+        )
+    else:
+        from .revision_runner import load_crossfit_inner_bundle
+
+        (frame, windows, audit), replays = load_crossfit_inner_bundle(
+            Path(prepared), config, outer_fold=outer_fold, sequences=True
+        )
     if frame is None:
         raise ValueError("classical features require the bound normalized contexts")
     source_order = tuple(sorted(map(str, config["data"]["development_sources"])))
@@ -340,6 +349,9 @@ def run_revision_baseline(config: dict, prepared: Path, *, baseline: str) -> Pat
         replays,
         source_order=source_order,
         output_dir=run_dir / "fixed-frame",
+        sensitivity_source_policy=(
+            "all_sources" if outer_fold is None else "supported_sources"
+        ),
     )
     _causal(replays["train"].timeline)
     summaries = build_revision_features(frame, windows, config)
@@ -531,11 +543,14 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--baseline", choices=BASELINES, required=True)
+    parser.add_argument("--outer-fold", type=int, choices=range(5))
     args = parser.parse_args()
     config = revision_config(
         load_config(args.config), seed=args.seed, output=args.output
     )
-    run_revision_baseline(config, args.prepared, baseline=args.baseline)
+    run_revision_baseline(
+        config, args.prepared, baseline=args.baseline, outer_fold=args.outer_fold
+    )
 
 
 if __name__ == "__main__":

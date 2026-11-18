@@ -247,6 +247,18 @@ def _groupby_sites_without_observed() -> dict[str, list[str]]:
     return {name: sorted(texts) for name, texts in sorted(found.items())}
 
 
+def test_crossfit_endpoint_counts_exclude_unobserved_identity_pairs() -> None:
+    from glycoshift.revision_runner import _endpoint_counts
+
+    frame = pd.DataFrame({
+        "source_id": pd.Categorical(["a", "a", "b"], categories=["a", "b", "unused"]),
+        "participant_id": pd.Categorical(
+            ["p", "p", "q"], categories=["p", "q", "unused"]
+        ),
+    })
+    assert _endpoint_counts(frame) == {("a", "p"): 2, ("b", "q"): 1}
+
+
 def test_no_new_groupby_omits_observed() -> None:
     """A new `groupby` without `observed=` must be classified by a human.
 

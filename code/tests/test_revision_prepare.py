@@ -1,15 +1,17 @@
 import copy
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
 from test_revision_inputs import fixture
 
+from glycoshift.revision_crossfit_prepare import prepare_crossfit_replays
 from glycoshift.revision_prepare import aggregate_denominators, prepare_replays
 from glycoshift.windows import build_windows
 
 
-def inputs(tmp_path):
+def inputs(tmp_path, *, participants_per_partition=1):
     raw, config = fixture()
     config = copy.deepcopy(config)
     config["data"].update(
@@ -18,7 +20,8 @@ def inputs(tmp_path):
     normalized, legacy = tmp_path / "normalized", tmp_path / "legacy"
     normalized.mkdir()
     legacy.mkdir()
-    for index, partition in enumerate(("train", "selection", "calibration")):
+    for index in range(3 * participants_per_partition):
+        partition = ("train", "selection", "calibration")[index % 3]
         frame = raw.copy()
         frame["participant_id"] = str(index)
         frame.loc[35:38, "cgm_mg_dl"] = 50
@@ -31,6 +34,12 @@ def inputs(tmp_path):
     excluded = raw.copy()
     excluded["participant_id"] = "excluded"
     excluded.to_parquet(normalized / "excluded.parquet", index=False)
+    return normalized, legacy, config
+
+
+def crossfit_inputs(tmp_path):
+    normalized, legacy, config = inputs(tmp_path, participants_per_partition=3)
+    config["project"] = {"synthetic": True}
     return normalized, legacy, config
 
 
@@ -95,3 +104,51 @@ def test_aggregate_does_not_invent_categorical_source_partition_cells():
     result = aggregate_denominators(rows)
     assert len(result) == 2
     assert result.base_events.tolist() == [3, 4]
+
+
+def test_crossfit_preparation_stores_full_online_timelines_once(tmp_path):
+    normalized, legacy, config = crossfit_inputs(tmp_path)
+    output = tmp_path / "crossfit"
+    audit = prepare_crossfit_replays(normalized, legacy, output, config)
+    assert audit["original_participants"] == 9
+    assert audit["timeline_copies_per_participant"] == 1
+    assert len(list(output.rglob("timelines/**/*.parquet"))) == 9
+    assert len(audit["fold_manifests"]) == 5
+    shared = output / "shared"
+    manifest = json.loads((shared / "participant-manifest.private.json").read_text())[
+        "participants"
+    ]
+    assert len(manifest) == 9
+    for entry in manifest:
+        timeline = pd.read_parquet(entry["timeline_path"])
+        assert (~timeline.base_evaluable).any()
+        assert timeline.partition.eq(entry["partition"]).all()
+        assert entry["participant_id"] != "excluded"
+    evaluations = []
+    for path in audit["fold_manifests"].values():
+        roles = json.loads(Path(path).read_text())["participants"]
+        assert len(roles) == 9
+        assert all("timeline_path" not in entry for entry in roles)
+        evaluations.extend(
+            entry["participant_id"] for entry in roles
+            if entry["role"] == "outer_evaluation"
+        )
+    assert sorted(evaluations) == [str(i) for i in range(9)]
+    with pytest.raises(FileExistsError):
+        prepare_crossfit_replays(normalized, legacy, output, config)
+
+
+def test_real_crossfit_requires_all_1020_identities_before_reading_values(
+    tmp_path, monkeypatch
+):
+    normalized, legacy, config = crossfit_inputs(tmp_path)
+    config["project"]["synthetic"] = False
+
+    def forbidden_values(*args, **kwargs):
+        pytest.fail("incomplete real population must fail before replay values")
+
+    monkeypatch.setattr(
+        "glycoshift.revision_crossfit_prepare.prepare_replays", forbidden_values
+    )
+    with pytest.raises(ValueError, match="all 1020"):
+        prepare_crossfit_replays(normalized, legacy, tmp_path / "crossfit", config)

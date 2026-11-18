@@ -13,9 +13,11 @@ Freeze schema: revision_contract, status="development_recipe_frozen", freeze_id,
 accepted_development_evidence=[file bindings], runs=[run entries], partitions.
 A file binding is {path,size_bytes,mtime_ns}. Each run entry contains run_dir,
 config={binding,snapshot}, model_summary={binding,snapshot}, model_artifacts,
-and cut_policies[cut][horizon][budget]={policy,evidence?}. Base54 policies must
-match the saved summary at budgets .5/1.0. Optional cut70 is budget .5 only and
-requires its exact development-analysis policy file binding as evidence.
+and cut_policies[cut][horizon][budget]={policy,evidence?}. Historical base54 policies
+match the saved summary at budgets .5/1.0; optional cut70 is .5 only. An explicit
+lstm-control scope in the freeze and every run requires six corrected fits,
+cuts54/70 and .5 only. Cut70 requires its exact accepted development-analysis
+policy file binding as evidence.
 Each partition contains source_id, input_path, source_manifest binding,
 required_origin, normalized_inputs bindings, accepted_normalization_evidence,
 accepted_global_cohort_audit, and source_normalization_contract with explicit
@@ -57,7 +59,11 @@ from .pipeline import (
 )
 from .revision_alarm_summary import summarize_alarm_glucose
 from .revision_baselines import BASELINES, _task_features, build_revision_features
-from .revision_inputs import ReplayInputs, build_participant_replay
+from .revision_inputs import (
+    CONFIRMATION_CONTRACT,
+    ReplayInputs,
+    build_participant_replay,
+)
 from .schema import validate_frame
 from .sequences import REVISION_CONTRACT, TASKS, SequenceScaler
 
@@ -66,6 +72,8 @@ _ALLOWED = {
     "stress_hupa_ucm": "HUPA-UCM",
 }
 _HORIZONS = (30, 60)
+LEGACY_COMPARISON_SCOPE = "legacy-with-composition"
+REDUCED_COMPARISON_SCOPE = "lstm-control"
 
 
 def _plain(value: Any) -> Any:
@@ -148,6 +156,7 @@ def _write_run_receipt(
     source: dict,
     summary: dict,
     counts: dict,
+    horizon_participant_counts: dict | None = None,
 ) -> None:
     """Bind the selected producer only after all scored output writers close."""
     paths = [
@@ -189,6 +198,7 @@ def _write_run_receipt(
             "reused frozen accepted evidence; not recomputed per participant"
         ),
         "counts": counts,
+        "horizon_participant_counts": horizon_participant_counts,
         "binding_scope": (
             "complete prediction/independent-endpoint/evaluation-ledger datasets "
             "and terminal summaries"
@@ -316,6 +326,42 @@ def load_development_freeze(
         or not str(freeze.get("freeze_id", "")).strip()
     ):
         raise ValueError("explicit accepted development recipe freeze is required")
+    scope = freeze.get("comparison_scope", LEGACY_COMPARISON_SCOPE)
+    if scope not in {LEGACY_COMPARISON_SCOPE, REDUCED_COMPARISON_SCOPE} or any(
+        entry.get("comparison_scope", LEGACY_COMPARISON_SCOPE) != scope
+        for entry in freeze["runs"]
+    ):
+        raise ValueError("freeze and run comparison scopes differ")
+    if scope == REDUCED_COMPARISON_SCOPE:
+        if any(
+            set(entry["cut_policies"]) != {"54", "70"}
+            or any(
+                set(horizons) != {"30", "60"}
+                or any(set(budgets) != {"0.5"} for budgets in horizons.values())
+                for horizons in entry["cut_policies"].values()
+            )
+            for entry in freeze["runs"]
+        ):
+            raise ValueError("all reduced fits require cuts54/70 and budget .5 only")
+        identities = [
+            (
+                entry["model_summary"]["snapshot"].get(
+                    "architecture", entry["model_summary"]["snapshot"].get("baseline")
+                ),
+                entry["model_summary"]["snapshot"].get("training_seed"),
+            )
+            for entry in freeze["runs"]
+        ]
+        if (
+            len(identities) != 6
+            or set(identities) != {
+                ("persistence", 17), *(("lstm", seed) for seed in (17, 23, 42, 71, 101))
+            }
+            or any(type(seed) is not int for _, seed in identities)
+            or "compositions" in freeze
+            or freeze.get("ascertainment_contract") != CONFIRMATION_CONTRACT
+        ):
+            raise ValueError("reduced freeze requires six actual model fits only")
     _evidence(freeze.get("accepted_development_evidence"))
     replay_contracts = []
     for run in freeze["runs"]:
@@ -359,6 +405,11 @@ def load_development_freeze(
     summary = json.loads(summary_file.read_text())
     if summary != entry["model_summary"]["snapshot"]:
         raise ValueError("frozen model summary/policy/temperature snapshot changed")
+    if scope == REDUCED_COMPARISON_SCOPE and (
+        config["training"]["seed"] != summary.get("training_seed")
+        or type(config["training"]["seed"]) is not int
+    ):
+        raise ValueError("reduced frozen fit seed differs from its configuration")
     if (
         summary.get("revision_contract") != REVISION_CONTRACT
         or summary.get("input_feature_mode") != "cgm_mask_clock"
@@ -429,6 +480,15 @@ def load_development_freeze(
 
 def _policies(entry: dict, summary: dict, config: dict) -> dict:
     cuts = entry["cut_policies"]
+    scope = entry.get("comparison_scope", LEGACY_COMPARISON_SCOPE)
+    if scope not in {LEGACY_COMPARISON_SCOPE, REDUCED_COMPARISON_SCOPE}:
+        raise ValueError("unknown frozen policy comparison scope")
+    reduced = scope == REDUCED_COMPARISON_SCOPE
+    if reduced and (
+        set(cuts) != {"54", "70"}
+        or config["protocol"].get("ascertainment_contract") != CONFIRMATION_CONTRACT
+    ):
+        raise ValueError("reduced policies require corrected masks and both cuts54/70")
     if set(cuts).difference({"54", "70"}) or "54" not in cuts:
         raise ValueError("only frozen development cuts 54/70 may be evaluated")
     selected = {}
@@ -436,9 +496,12 @@ def _policies(entry: dict, summary: dict, config: dict) -> dict:
         if set(horizons) != {"30", "60"}:
             raise ValueError("frozen cut policies require both horizons")
         for horizon_text, budgets in horizons.items():
-            expected = {"0.5", "1.0"} if cut == "54" else {"0.5"}
+            expected = {"0.5", "1.0"} if cut == "54" and not reduced else {"0.5"}
             if set(budgets) != expected:
-                raise ValueError("base54 requires .5/1.0; cut70 requires .5 only")
+                raise ValueError(
+                    "reduced cuts require .5 only" if reduced else
+                    "base54 requires .5/1.0; cut70 requires .5 only"
+                )
             horizon = int(horizon_text)
             task = summary["tasks"][f"hypo_{horizon}"]
             if (
@@ -497,6 +560,7 @@ def _policies(entry: dict, summary: dict, config: dict) -> dict:
             or specification["target_column"] != expected_target
             or not np.isfinite(temperature)
             or temperature <= 0
+            or (reduced and specification.get("mask_column") != f"{task}_training_mask")
         ):
             raise ValueError("task temperatures must be frozen calibration fits")
     return selected
@@ -725,6 +789,10 @@ def run_revision_external(
         "tail_rows": 0,
         "raw_rows": 0,
     }
+    horizon_counts = {
+        str(h): {"evaluated_participants": 0, "zero_base_exposure_participants": 0}
+        for h in _HORIZONS
+    }
     contract = source["source_normalization_contract"]
     try:
         predictor = FrozenPredictor(run_dir, config, summary)
@@ -752,6 +820,12 @@ def run_revision_external(
                     "lower_censoring_absent_means_false"
                 ],
             )
+            for horizon in _HORIZONS:
+                counter = (
+                    "zero_base_exposure_participants"
+                    if replay.exposure[horizon].empty else "evaluated_participants"
+                )
+                horizon_counts[str(horizon)][counter] += 1
             prediction = predictor.predict(frame, replay)
             for category, table in (
                 ("predictions", prediction),
@@ -790,13 +864,13 @@ def run_revision_external(
                 print(
                     json.dumps({"event": "participant_progress", **counts}), flush=True
                 )
-            if any(replay.exposure[h].empty for h in _HORIZONS):
-                if not all(replay.exposure[h].empty for h in _HORIZONS):
-                    raise ValueError("base participant differs between horizons")
+            if all(replay.exposure[h].empty for h in _HORIZONS):
                 counts["zero_base_exposure_participants"] += 1
                 del prediction, replay, frame
                 continue
             for (cut, horizon, budget), policy in policies.items():
+                if replay.exposure[horizon].empty:
+                    continue
                 timeline = prediction.copy(deep=False)
                 timeline["base_evaluable"] = prediction[f"base_evaluable_{horizon}"]
                 evaluated = evaluate_fixed_frame(
@@ -848,6 +922,7 @@ def run_revision_external(
             private / "input-audit.json",
             {
                 **counts,
+                "horizon_participant_counts": horizon_counts,
                 "source_normalization_contract": contract,
                 "prediction_batch_size": int(config["training"]["batch_size"]),
                 "prediction_loader_workers": 0,
@@ -867,6 +942,7 @@ def run_revision_external(
             "thresholds_fitted_on_external": False,
             "source_preprocessing_limits": contract["source_preprocessing_limits"],
             "counts": counts,
+            "horizon_participant_counts": horizon_counts,
             "policies": summaries,
         }
         _json(exportable / "fixed-frame-summary.json", result)
@@ -906,6 +982,7 @@ def run_revision_external(
             source=source,
             summary=summary,
             counts=counts,
+            horizon_participant_counts=horizon_counts,
         )
     except Exception as error:
         _json(

@@ -51,6 +51,7 @@ from .revision_external import (
     _recheck_bindings,
     load_development_freeze,
 )
+from .revision_group_inference import validated_horizon_counts
 from .sequences import REVISION_CONTRACT
 
 _IDS = ["source_id", "participant_id"]
@@ -193,12 +194,17 @@ def _read_receipt(
     if status != {"status": "complete", "freeze_id": freeze["freeze_id"]}:
         raise ValueError("external producer terminal status is not complete")
     audit = json.loads((root / "private/input-audit.json").read_text())
+    horizon_counts = validated_horizon_counts(
+        receipt.get("horizon_participant_counts"),
+        receipt["counts"]["normalized_participants"],
+    )
     if (
         audit["source_normalization_contract"]
         != source["source_normalization_contract"]
         or audit["accepted_global_cohort_audit"]
         != source["accepted_global_cohort_audit"]
         or "not recomputed" not in audit["global_cohort_audit"]
+        or audit.get("horizon_participant_counts") != horizon_counts
     ):
         raise ValueError("external normalization/global-QC acceptance differs")
     report = json.loads((root / "exportable/fixed-frame-summary.json").read_text())
@@ -207,6 +213,7 @@ def _read_receipt(
         or report.get("counts") != receipt["counts"]
         or report.get("partition") != partition
         or report.get("freeze_id") != freeze["freeze_id"]
+        or report.get("horizon_participant_counts") != horizon_counts
     ):
         raise ValueError("producer counts or summary differ from its native receipt")
     prediction_files = sorted((root / "private/predictions").rglob("*.parquet"))
@@ -296,9 +303,12 @@ def _member_frames(paths: dict, summaries: dict, partition: str):
         frame = file.read(columns=[*_METADATA, *_SCORES], use_threads=False).to_pandas()
         if not frame.partition.eq(partition).all():
             raise ValueError("external prediction partition differs from its receipt")
-        if not np.array_equal(frame.base_evaluable, frame.base_evaluable_60):
+        if (
+            not np.array_equal(frame.base_evaluable, frame.base_evaluable_30)
+            or (frame.base_evaluable_60 & ~frame.base_evaluable).any()
+        ):
             raise ValueError(
-                "base evaluability differs from the frozen maximum-horizon frame"
+                "horizon evaluability expands or changes the historical base frame"
             )
         for horizon in HORIZONS:
             task = f"hypo_{horizon}"
@@ -438,9 +448,12 @@ def run_external_composition(
             roots[member], freeze, run_entry, source, partition
         )
         summaries[member] = summary
-    if receipts["lstm"]["counts"] != receipts["persistence"]["counts"] or set(
-        indices["lstm"]
-    ) != set(indices["persistence"]):
+    if (
+        receipts["lstm"]["counts"] != receipts["persistence"]["counts"]
+        or receipts["lstm"].get("horizon_participant_counts")
+        != receipts["persistence"].get("horizon_participant_counts")
+        or set(indices["lstm"]) != set(indices["persistence"])
+    ):
         raise ValueError(
             "external member populations/counts differ; no intersection allowed"
         )
@@ -460,9 +473,30 @@ def run_external_composition(
     private.mkdir()
     exportable.mkdir()
     metrics = {condition: [] for condition in policies}
+    horizon_counts = receipts["lstm"].get("horizon_participant_counts")
+    horizon_metadata = (
+        {} if horizon_counts is None else {"horizon_participant_counts": horizon_counts}
+    )
     scored_rows, tail_rows = 0, 0
     try:
-        for ordinal, key in enumerate(sorted(indices["lstm"])):
+        # Retain empty endpoint shards for normalized records without a scored
+        # timeline. Their complete population remains bound by native receipts.
+        prediction_names = {path.name for path in indices["lstm"].values()}
+        for horizon in HORIZONS:
+            for category in ("events", "exposure"):
+                relative = f"endpoints/{category}-{horizon}"
+                for path in (roots["lstm"] / "private" / relative).glob("*.parquet"):
+                    if path.name in prediction_names:
+                        continue
+                    other = roots["persistence"] / "private" / relative / path.name
+                    left = pq.read_table(path, use_threads=False).to_pandas()
+                    right = pq.read_table(other, use_threads=False).to_pandas()
+                    if not left.empty or not right.empty or set(left) != set(right):
+                        raise ValueError("unscored normalized endpoint records differ")
+                    destination = private / relative
+                    destination.mkdir(parents=True, exist_ok=True)
+                    _parquet(destination / path.name, left)
+        for key in sorted(indices["lstm"]):
             paths = {member: indices[member][key] for member in MEMBERS}
             frames = _member_frames(paths, summaries, partition)
             combined = compose_frozen_scores(frozen, frames)
@@ -483,13 +517,13 @@ def run_external_composition(
             tail_rows += int((~combined.base_evaluable).sum())
             destination = private / "predictions"
             destination.mkdir(exist_ok=True)
-            _parquet(destination / f"part-{ordinal:05d}.parquet", combined)
+            _parquet(destination / paths["lstm"].name, combined)
             for horizon in HORIZONS:
                 events, exposure = _paired_truth(roots, paths, key, horizon)
                 for name, table in (("events", events), ("exposure", exposure)):
                     destination = private / f"endpoints/{name}-{horizon}"
                     destination.mkdir(parents=True, exist_ok=True)
-                    _parquet(destination / f"part-{ordinal:05d}.parquet", table)
+                    _parquet(destination / paths["lstm"].name, table)
                 if exposure.empty:
                     if not events.empty:
                         raise ValueError("base events exist outside base exposure")
@@ -518,7 +552,7 @@ def run_external_composition(
                         )
                         destination.mkdir(parents=True, exist_ok=True)
                         _parquet(
-                            destination / f"part-{ordinal:05d}.parquet",
+                            destination / paths["lstm"].name,
                             getattr(evaluated, name),
                         )
             del frames, combined
@@ -540,6 +574,12 @@ def run_external_composition(
                 )
             summary = _aggregate(table)
             cut, horizon = condition
+            if horizon_counts is not None and len(table) != horizon_counts[
+                str(horizon)
+            ]["evaluated_participants"]:
+                raise ValueError(
+                    "composition horizon exposure differs from member counts"
+                )
             rows.append(
                 {
                     "source_id": source["source_id"],
@@ -569,6 +609,7 @@ def run_external_composition(
                 ),
                 "scored_rows": scored_rows,
                 "tail_rows": tail_rows,
+                **horizon_metadata,
             },
         )
         payload = {
@@ -584,6 +625,7 @@ def run_external_composition(
             "scored_rows": scored_rows,
             "tail_rows": tail_rows,
             "policies": rows,
+            **horizon_metadata,
         }
         _json(exportable / "fixed-frame-summary.json", payload)
         pd.DataFrame(
@@ -670,6 +712,7 @@ def run_external_composition(
                     "decision_rows": scored_rows,
                     "tail_rows": tail_rows,
                 },
+                **horizon_metadata,
                 "binding_scope": (
                     "complete prediction/independent-endpoint/evaluation-ledger "
                     "datasets, input receipt and terminal summaries"

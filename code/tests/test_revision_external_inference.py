@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -81,24 +82,30 @@ def _evaluation(horizon, detected, *, zero_alarm=False, cut=54, positive=("p0", 
     )
 
 
-def _joint_fixture(*, seeds=(17, 23), positivity=None):
+def _joint_fixture(
+    *, seeds=(17, 23), positivity=None, cuts=(54,), with_composition=True,
+):
     result = {}
     for horizon in (30, 60):
         positive = (positivity or {}).get(horizon, ("p0", "p1"))
-        control = _evaluation(horizon, (), positive=positive)
-        for seed in seeds:
-            # Each horizon/seed has complementary patients; averaging must happen
-            # after the same participant draw, not with four independent draws.
-            selected = "p0" if (seed == seeds[0]) == (horizon == 30) else "p1"
-            for arm, evaluation in (
-                ("persistence", control),
-                ("lstm", _evaluation(horizon, (selected,), positive=positive)),
-                (
-                    "composition",
-                    _evaluation(horizon, positive, zero_alarm=True, positive=positive),
-                ),
-            ):
-                result[FixedFrameKey(arm, 54, horizon, seed)] = evaluation
+        for cut in cuts:
+            control = _evaluation(horizon, (), positive=positive, cut=cut)
+            for seed in seeds:
+                # Each horizon/seed has complementary patients; averaging must
+                # happen after the same participant draw.
+                selected = "p0" if (seed == seeds[0]) == (horizon == 30) else "p1"
+                values = {
+                    "persistence": control,
+                    "lstm": _evaluation(
+                        horizon, (selected,), positive=positive, cut=cut
+                    ),
+                }
+                if with_composition:
+                    values["composition"] = _evaluation(
+                        horizon, positive, zero_alarm=True, positive=positive, cut=cut
+                    )
+                for arm, evaluation in values.items():
+                    result[FixedFrameKey(arm, cut, horizon, seed)] = evaluation
     return result
 
 
@@ -282,7 +289,10 @@ def _write_parquet(path, table):
     external._parquet(path, table)
 
 
-def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
+def _accepted_fixture(
+    tmp_path, *, cut70=False, positivity=None, horizon_members=None,
+    with_composition=True,
+):
     """Synthetic native producer outputs without model or source replay."""
     freeze_path, entries, normalized = _fixture(tmp_path / "fixture", cut70=cut70)
     freeze = json.loads(freeze_path.read_text())
@@ -339,8 +349,13 @@ def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
     source["normalized_inputs"] = [_binding(normalized)]
     source_order = tuple(sorted(persistence_config["data"]["development_sources"]))
     recipes = {}
-    freeze["compositions"] = []
-    for seed, lstm in zip(SEEDS, runs[1:], strict=True):
+    if with_composition:
+        freeze["compositions"] = []
+    else:
+        freeze.pop("compositions", None)
+    for seed, lstm in (
+        zip(SEEDS, runs[1:], strict=True) if with_composition else ()
+    ):
         metadata = {
             arm: {
                 "run_dir": entry["run_dir"],
@@ -410,6 +425,15 @@ def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
         "tail_rows": 0,
         "raw_rows": len(original) // 2 * 3,
     }
+    horizon_counts = None if horizon_members is None else {
+        str(h): {
+            "evaluated_participants": len(horizon_members[h]),
+            "zero_base_exposure_participants": 3 - len(horizon_members[h]),
+        } for h in (30, 60)
+    }
+    horizon_metadata = {} if horizon_counts is None else {
+        "horizon_participant_counts": horizon_counts
+    }
     producers = []
     for entry in runs:
         summary = entry["model_summary"]["snapshot"]
@@ -420,7 +444,8 @@ def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
             arm, seed, output, run_dir=Path(entry["run_dir"])
         )
         _producer_ledgers(
-            specification, freeze, counts, positivity=positivity, cut70=cut70
+            specification, freeze, counts, positivity=positivity, cut70=cut70,
+            horizon_members=horizon_members,
         )
         external._write_run_receipt(
             output,
@@ -430,15 +455,17 @@ def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
             source=source,
             summary=summary,
             counts=counts,
+            horizon_participant_counts=horizon_counts,
         )
         producers.append(specification)
-    for seed in SEEDS:
+    for seed in SEEDS if with_composition else ():
         output = tmp_path / f"producer-composition-{seed}"
         specification = inference.ExternalProducer(
             "composition", seed, output, recipe=recipes[seed]
         )
         _producer_ledgers(
-            specification, freeze, counts, positivity=positivity, cut70=cut70
+            specification, freeze, counts, positivity=positivity, cut70=cut70,
+            horizon_members=horizon_members,
         )
         members = {
             arm: _binding(
@@ -459,6 +486,7 @@ def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
             "global_cohort_audit": (
                 "reused original accepted producer evidence; no new global audit"
             ),
+            **horizon_metadata,
         }
         _write_json(output / "private/composition-input-receipt.json", audit)
         receipt = {
@@ -488,7 +516,9 @@ def _accepted_fixture(tmp_path, *, cut70=False, positivity=None):
     return freeze_path, producers
 
 
-def _producer_ledgers(specification, freeze, counts, *, positivity, cut70):
+def _producer_ledgers(
+    specification, freeze, counts, *, positivity, cut70, horizon_members=None,
+):
     output = specification.output_dir
     rows = []
     for horizon in (30, 60):
@@ -509,6 +539,17 @@ def _producer_ledgers(specification, freeze, counts, *, positivity, cut70):
                 cut=cut,
                 positive=positive,
             )
+            if horizon_members is not None:
+                def selected(frame, members=horizon_members[horizon]):
+                    return frame.loc[
+                        frame.participant_id.isin(members)
+                    ].copy()
+
+                evaluation = replace(
+                    evaluation, participants=selected(evaluation.participants),
+                    events=selected(evaluation.events),
+                    alarms=selected(evaluation.alarms),
+                )
             if cut == 54:
                 for ordinal, participant in enumerate(("p0", "p1", "zero"), start=1):
                     _write_parquet(
@@ -567,6 +608,14 @@ def _producer_ledgers(specification, freeze, counts, *, positivity, cut70):
         "external_already_exposed": True,
         "policies": rows,
     }
+    horizon_metadata = {} if horizon_members is None else {
+        "horizon_participant_counts": {
+            str(h): {"evaluated_participants": len(horizon_members[h]),
+                     "zero_base_exposure_participants": 3 - len(horizon_members[h])}
+            for h in (30, 60)
+        }
+    }
+    report.update(horizon_metadata)
     if specification.arm == "composition":
         report.update(
             comparison_lstm_seed=specification.model_seed,
@@ -589,6 +638,7 @@ def _producer_ledgers(specification, freeze, counts, *, positivity, cut70):
                 "global_cohort_audit": (
                     "reused frozen accepted evidence; not recomputed per participant"
                 ),
+                **horizon_metadata,
             },
         )
         _write_json(output / "private/recipe-freeze-used.json", freeze)
@@ -608,12 +658,18 @@ def _producer_ledgers(specification, freeze, counts, *, positivity, cut70):
     )
 
 
-def _accepted(freeze_path, producers, *, cuts=(54,)):
+def _accepted(
+    freeze_path, producers, *, cuts=(54,),
+    comparison_scope=inference.LEGACY_COMPARISON_SCOPE,
+):
     return inference._accept_producers(
         freeze_path,
-        inference._producer_specifications(producers),
+        inference._producer_specifications(
+            producers, comparison_scope=comparison_scope
+        ),
         "external_loop",
         cuts,
+        comparison_scope=comparison_scope,
     )
 
 
@@ -832,3 +888,306 @@ def test_no_confirmatory_partition_and_no_arbitrary_cut_or_budget(tmp_path):
     for cuts in ((70,), (54, 65), (54, 54), (70, 54)):
         with pytest.raises(ValueError, match="main cut"):
             inference._cuts(cuts)
+
+
+def _lstm_control_records():
+    return [
+        {
+            "arm": arm, "model_seed": seed,
+            "output_dir": f"/synthetic/output-{arm}-{seed}",
+            "run_dir": f"/synthetic/run-{arm}-{seed}",
+        }
+        for arm, seeds in (("persistence", (17,)), ("lstm", SEEDS))
+        for seed in seeds
+    ]
+
+
+def test_explicit_lstm_control_manifest_accepts_exact_six_producers():
+    records = _lstm_control_records()
+    specifications = inference._manifest_producers(
+        {"comparison_scope": "lstm-control", "producers": records},
+        comparison_scope="lstm-control",
+    )
+    assert [(p.arm, p.model_seed) for p in specifications] == [
+        (record["arm"], record["model_seed"]) for record in records
+    ]
+    assert all(p.recipe is None for p in specifications)
+    # The historical default still requires all five real composition producers.
+    with pytest.raises(ValueError, match="LSTM/composition"):
+        inference._manifest_producers({"producers": records})
+
+
+@pytest.mark.parametrize("defect", [
+    "missing_seed", "duplicate_seed", "wrong_seed", "bool_seed",
+    "wrong_control_seed", "composition_placeholder", "extra_producer_field",
+    "missing_scope", "wrong_scope", "extra_manifest_field", "nonlist_producers",
+])
+def test_reduced_manifest_known_defects_fail_closed(defect):
+    records = _lstm_control_records()
+    manifest = {"comparison_scope": "lstm-control", "producers": records}
+    if defect == "missing_seed":
+        records.pop()
+    elif defect == "duplicate_seed":
+        records.append(copy.deepcopy(records[-1]))
+    elif defect == "wrong_seed":
+        records[-1]["model_seed"] = 102
+    elif defect == "bool_seed":
+        records[-1]["model_seed"] = True
+    elif defect == "wrong_control_seed":
+        records[0]["model_seed"] = 23
+    elif defect == "composition_placeholder":
+        records.append({
+            "arm": "composition", "model_seed": 17,
+            "output_dir": "/synthetic/unused-composition", "recipe": "/missing",
+        })
+    elif defect == "extra_producer_field":
+        records[0]["recipe"] = None
+    elif defect == "missing_scope":
+        manifest.pop("comparison_scope")
+    elif defect == "wrong_scope":
+        manifest["comparison_scope"] = "legacy-with-composition"
+    elif defect == "extra_manifest_field":
+        manifest["ignored"] = True
+    else:
+        manifest["producers"] = {"producers": records}
+    with pytest.raises(ValueError):
+        inference._manifest_producers(manifest, comparison_scope="lstm-control")
+
+
+def test_two_method_arithmetic_matches_historical_joint_draws_exactly():
+    legacy = _joint_fixture(seeds=SEEDS, cuts=(54, 70))
+    values = {key: value for key, value in legacy.items() if key.arm != "composition"}
+    kwargs = {
+        "source_order": (SOURCE,), "glucose_cuts": (54, 70),
+        "replicates": 37, "include_replicates": True,
+        "participant_groups": {
+            (SOURCE, participant): participant for participant in ("p0", "p1", "zero")
+        },
+    }
+    historical = inference.paired_external_inference(legacy, **kwargs)
+    reduced = inference.paired_external_inference(
+        values, **kwargs, comparison_scope="lstm-control"
+    )
+    assert reduced["comparison_arms"] == ["persistence", "lstm"]
+    assert reduced["counts"] == historical["counts"]
+    for metric, payload in reduced["metrics"].items():
+        assert len(payload["contrasts"]) == 7
+        for name, contrast in payload["contrasts"].items():
+            assert "composition" not in name
+            if name == "lstm_minus_persistence_contrast_change_70_minus_54":
+                assert set(contrast["replicate_estimates"]) == {0.0}
+            else:
+                assert contrast == historical["metrics"][metric]["contrasts"][name]
+
+
+def test_cross_cut_change_uses_paired_draws_instead_of_marginal_interval_endpoints(
+    monkeypatch,
+):
+    values = {}
+    for horizon in (30, 60):
+        for cut in (54, 70):
+            for seed in SEEDS:
+                for arm in ("persistence", "lstm"):
+                    detected = () if arm == "persistence" else (
+                        ("p0",) if cut == 54 else ("p0", "p1")
+                    )
+                    values[FixedFrameKey(arm, cut, horizon, seed)] = _evaluation(
+                        horizon, detected, cut=cut, positive=("p0", "p1", "zero"),
+                    )
+
+    class OracleDraw:
+        def __init__(self):
+            self.draws = iter(([0, 0, 0], [1, 1, 1], [0, 1, 2]))
+
+        def choice(self, options, *, size, replace):
+            assert size == len(options) == 3 and replace
+            return options[next(self.draws)]
+
+    monkeypatch.setattr(np.random, "default_rng", lambda _: OracleDraw())
+    result = inference.paired_external_inference(
+        values, source_order=(SOURCE,), glucose_cuts=(54, 70),
+        comparison_scope="lstm-control", replicates=3, include_replicates=True,
+    )
+    contrasts = result["metrics"]["fixed_sensitivity"]["contrasts"]
+    change = contrasts["lstm_minus_persistence_contrast_change_70_minus_54"]
+    expected = [0.0, 1.0, 1 / 3]
+    np.testing.assert_allclose(change["replicate_estimates"], expected)
+    assert change["estimate"] == pytest.approx(1 / 3)
+    np.testing.assert_allclose(
+        [change["ci_low"], change["ci_high"]], np.percentile(expected, [2.5, 97.5])
+    )
+    for horizon in (30, 60):
+        np.testing.assert_allclose(
+            [point[0 if horizon == 30 else 1] for point in
+             change["replicate_horizon_seed_estimates"]],
+            np.tile(np.array(expected)[:, None], (1, 5)),
+        )
+        assert change["per_horizon"][horizon]["estimate"] == pytest.approx(1 / 3)
+    np.testing.assert_allclose(list(change["per_model_seed"].values()), 1 / 3)
+    at54 = contrasts["lstm_minus_persistence_at_54"]
+    at70 = contrasts["lstm_minus_persistence_at_70"]
+    assert change["ci_low"] != pytest.approx(at70["ci_low"] - at54["ci_high"])
+    assert change["ci_high"] != pytest.approx(at70["ci_high"] - at54["ci_low"])
+
+
+@pytest.mark.parametrize("defect", [
+    "missing_seed", "missing_cut", "missing_horizon", "extra_composition",
+    "control_alias", "partial_seed_order", "cut54_only",
+])
+def test_two_method_arithmetic_preserves_complete_matrix_and_control_checks(defect):
+    values = _joint_fixture(
+        seeds=SEEDS, cuts=(54, 70), with_composition=False,
+    )
+    cuts, seeds = (54, 70), SEEDS
+    if defect == "missing_seed":
+        values.pop(FixedFrameKey("lstm", 54, 30, 101))
+    elif defect == "missing_cut":
+        values = {key: value for key, value in values.items() if key.glucose_cut != 70}
+    elif defect == "missing_horizon":
+        values = {
+            key: value for key, value in values.items() if key.horizon_minutes != 60
+        }
+    elif defect == "extra_composition":
+        values[FixedFrameKey("composition", 54, 30, 17)] = _evaluation(30, ())
+    elif defect == "control_alias":
+        values[FixedFrameKey("persistence", 70, 60, 101)] = _evaluation(
+            60, ("p0",), cut=70
+        )
+    elif defect == "partial_seed_order":
+        seeds = (17, 23)
+    else:
+        cuts = (54,)
+    with pytest.raises(ValueError):
+        inference.paired_external_inference(
+            values, source_order=(SOURCE,), glucose_cuts=cuts,
+            model_seed_order=seeds, comparison_scope="lstm-control", replicates=3,
+        )
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_native_two_method_export_needs_no_composition_and_keeps_group_sensitivity(
+    tmp_path, monkeypatch, grouped,
+):
+    freeze_path, producers = _accepted_fixture(
+        tmp_path / "native", cut70=True, with_composition=False,
+        horizon_members=(
+            {30: ("p0", "p1", "zero"), 60: ("p0", "zero")} if grouped else None
+        ),
+    )
+    freeze = json.loads(freeze_path.read_text())
+    assert "compositions" not in freeze
+    assert len(producers) == 6
+
+    def unused_composition(*args, **kwargs):
+        pytest.fail("two-method inference must not require composition artifacts")
+
+    original = pq.ParquetFile
+
+    def ledger_only(path, *args, **kwargs):
+        assert "private/predictions" not in str(path)
+        assert "normalized.parquet" not in str(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(inference, "_composition_policies", unused_composition)
+    monkeypatch.setattr(pq, "ParquetFile", ledger_only)
+    group_manifest = None
+    if grouped:
+        from test_revision_group_inference import _group_files
+
+        group_manifest, _ = _group_files(
+            tmp_path / "private-inputs", freeze_id=freeze["freeze_id"],
+            source=freeze["partitions"]["external_loop"],
+        )
+    output = inference.run_external_paired_inference(
+        freeze_path, partition="external_loop", producers=producers,
+        output_dir=tmp_path / "aggregate", glucose_cuts=(54, 70),
+        group_manifest_path=group_manifest, comparison_scope="lstm-control",
+    )
+    report = json.loads((output / "external-paired-inference.json").read_text())
+    assert report["comparison_scope"] == "lstm-control"
+    assert report["comparison_arms"] == ["persistence", "lstm"]
+    assert report["glucose_cuts"] == [54, 70]
+    assert report["model_seeds"] == list(SEEDS)
+    assert report["bootstrap_replicates"] == 1000
+    assert report["bootstrap_seed"] == 20260810
+    assert report["nominal_fapd"] == 0.5
+    assert report["actual_fit_counts"] == {"persistence": 1, "lstm": 5}
+    assert report["native_completed_producer_count"] == 6
+    assert report["derived_composition_recipe_count"] == 0
+    assert len(report["descriptive_policies"]) == 24
+    analyses = [report]
+    if grouped:
+        assert report["correlation_handling"]["full_group_count"] == 2
+        assert [row["participant_count"] for row in report["counts"]] == [3, 2]
+        excluded = report["named_sensitivities"]["exclude_verified_pair_records"]
+        analyses.append(excluded)
+        assert excluded["comparison_scope"] == "lstm-control"
+        assert excluded["thresholds_refit"] is excluded["fitted_on_external"] is False
+        assert {row["participant_count"] for row in excluded["counts"]} == {1}
+        assert len(excluded["descriptive_policies"]) == 24
+    for analysis in analyses:
+        assert {row["arm"] for row in analysis["descriptive_policies"]} == {
+            "persistence", "lstm"
+        }
+        for payload in analysis["metrics"].values():
+            assert len(payload["contrasts"]) == 7
+            assert all("composition" not in name for name in payload["contrasts"])
+            assert payload["bootstrap_seed"] == 20260810
+        assert all(
+            row["nominal_fapd"] == 0.5 for row in analysis["descriptive_policies"]
+        )
+    csv = pd.read_csv(output / "external-paired-inference.csv")
+    assert len(csv) == (126 if grouped else 63)
+    assert not (output / "private").exists()
+
+
+def test_reduced_production_requires_both_frozen_cuts_before_reading_inputs(tmp_path):
+    producers = inference._producer_specifications(
+        _lstm_control_records(), comparison_scope="lstm-control"
+    )
+    with pytest.raises(ValueError, match="cuts54/70"):
+        inference.run_external_paired_inference(
+            tmp_path / "not-read.json", partition="external_loop", producers=producers,
+            output_dir=tmp_path / "not-created", comparison_scope="lstm-control",
+        )
+    assert not (tmp_path / "not-created").exists()
+
+
+@pytest.mark.parametrize(
+    "comparison_scope", ["legacy-with-composition", "lstm-control"]
+)
+def test_cli_selects_scope_and_manifest_contract(
+    tmp_path, monkeypatch, comparison_scope,
+):
+    records = _lstm_control_records()
+    if comparison_scope == "legacy-with-composition":
+        records.extend({
+            "arm": "composition", "model_seed": seed,
+            "output_dir": f"/synthetic/composition-{seed}",
+            "recipe": f"/synthetic/recipe-{seed}",
+        } for seed in SEEDS)
+    manifest = {"producers": records}
+    arguments = [
+        "inference", "--freeze", str(tmp_path / "freeze.json"),
+        "--manifest", str(tmp_path / "manifest.json"),
+        "--partition", "external_loop", "--output", str(tmp_path / "aggregate"),
+    ]
+    if comparison_scope == "lstm-control":
+        manifest["comparison_scope"] = comparison_scope
+        arguments += [
+            "--comparison-scope", comparison_scope,
+            "--glucose-cut", "54", "--glucose-cut", "70",
+        ]
+    _write_json(tmp_path / "manifest.json", manifest)
+    calls = []
+    monkeypatch.setattr(sys, "argv", arguments)
+    monkeypatch.setattr(
+        inference, "run_external_paired_inference",
+        lambda *args, **kwargs: calls.append(kwargs),
+    )
+    inference.main()
+    assert len(calls) == 1
+    assert calls[0]["comparison_scope"] == comparison_scope
+    reduced = comparison_scope == "lstm-control"
+    assert len(calls[0]["producers"]) == (6 if reduced else 11)
+    assert calls[0]["glucose_cuts"] == ((54, 70) if reduced else (54,))

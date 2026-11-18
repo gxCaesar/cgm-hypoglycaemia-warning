@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -28,6 +29,49 @@ ROLE_LABELS = {
     "selection": "Selection",
     "calibration": "Calibration",
 }
+COMPLETE_ROLE_COUNTS = {"train": 717, "selection": 153, "calibration": 150}
+HORIZONS = (30, 60)
+REVISION = "2026-11-04-fixed-frame"
+ASCERTAINMENT = "2026-11-09-complete-confirmation"
+INPUT_COLUMNS = (
+    "participants",
+    "normalized_records",
+    "context_valid_anchors",
+    "context_valid_interpolated_anchors",
+    "observed_anchor_decisions",
+    "legacy_decisions",
+    "legacy_interpolated_anchor_decisions",
+    "legacy_nonobserved_anchor_decisions",
+    "legacy_observed_retained_decisions",
+    "historical_base_evaluable_decisions",
+    "historical_eligible_calendar_days",
+    "historical_base_future_completeness_minutes",
+)
+ENDPOINT_COLUMNS = (
+    "base_participants",
+    "base_events",
+    "event_positive_participants",
+    "calendar_days",
+    "observation_minutes",
+    "effective_24h_days",
+    "base_evaluable_decisions",
+    "base_future_completeness_minutes",
+)
+WINDOW_COLUMNS = (
+    "participants",
+    "stored_rows",
+    "historical_complete_rows",
+    "historical_task_eligible_rows",
+    "supervised_rows",
+    "newly_excluded_supervision_rows",
+    "confirmed_positive_labels",
+    "confirmed_positive_labels_outside_mask",
+    "base_evaluable_decisions",
+    "retained_training_windows",
+    "positive_training_windows",
+    "negative_training_windows",
+    "base_future_completeness_minutes",
+)
 
 
 def integer(value) -> str:
@@ -58,7 +102,7 @@ def table(rows, columns, header, caption, label):
     )
 
 
-def build(aggregate: Path, output: Path):
+def _build_historical(aggregate: Path, output: Path):
     summary = json.loads((aggregate / "population-summary.json").read_text())
     if (
         summary["status"] != "passed"
@@ -255,12 +299,563 @@ def build(aggregate: Path, output: Path):
     }
 
 
+def _require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def _binding(path):
+    _require(
+        path.is_absolute()
+        and path == path.resolve()
+        and path.is_file()
+        and not path.is_symlink(),
+        f"canonical regular population aggregate required: {path}",
+    )
+    stat = path.stat()
+    return {"path": str(path), "size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def _near(left, right):
+    return (
+        type(left) in (int, float)
+        and type(right) in (int, float)
+        and math.isfinite(left)
+        and math.isfinite(right)
+        and math.isclose(left, right, rel_tol=1e-12, abs_tol=1e-8)
+    )
+
+
+def _complete_grid(frame, dimensions, measures, label):
+    """Check the exact source grid and independently conserved role totals."""
+    keys = ["row_type", "source_id", "partition", *dimensions]
+    _require(set(frame.columns) == {*keys, *measures}, f"{label} schema differs")
+    integer_columns = [
+        *(name for name in dimensions if name == "horizon"),
+        *(name for name in measures if name != "effective_24h_days"),
+    ]
+    for name in integer_columns:
+        _require(
+            frame[name].map(lambda value: value.isascii() and value.isdecimal()).all(),
+            f"{label} {name} must contain finite nonnegative integers",
+        )
+        frame[name] = frame[name].map(int)
+    if "effective_24h_days" in measures:
+        values = pd.to_numeric(frame.effective_24h_days, errors="coerce")
+        _require(
+            values.map(lambda value: math.isfinite(value) and value >= 0).all(),
+            "endpoint effective_24h_days must be finite and nonnegative",
+        )
+        frame["effective_24h_days"] = values
+    expected = set()
+    horizons = HORIZONS if "horizon" in dimensions else (None,)
+    tasks = ("hypo", "hyper") if "task" in dimensions else (None,)
+    for role in ROLES:
+        for horizon in horizons:
+            for task in tasks:
+                suffix = (() if horizon is None else (horizon,)) + (
+                    () if task is None else (task,)
+                )
+                expected.update(
+                    ("source", source, role, *suffix) for source in SOURCE_ORDER
+                )
+                expected.add(("role_total", "", role, *suffix))
+    _require(
+        not frame.duplicated(keys).any()
+        and set(frame[keys].itertuples(index=False, name=None)) == expected,
+        f"complete {label} source/role/horizon/task inventory required",
+    )
+    frame_property = (
+        "base_future_completeness_minutes"
+        if dimensions
+        else "historical_base_future_completeness_minutes"
+    )
+    if dimensions:
+        _require(
+            frame[frame_property]
+            .eq(frame.horizon.map(lambda horizon: max(60, horizon + 10)))
+            .all(),
+            f"{label} must use horizon-specific 60/70-minute completeness",
+        )
+    else:
+        _require(
+            frame[frame_property].eq(60).all(),
+            "historical input completeness must remain 60 minutes",
+        )
+    additive = [name for name in measures if name != frame_property]
+    group_keys = ["partition", *dimensions]
+    sources = frame.loc[frame.row_type.eq("source")].copy()
+    totals = frame.loc[frame.row_type.eq("role_total")].set_index(group_keys)
+    recomputed = sources.groupby(group_keys, sort=False)[additive].sum()
+    for key, row in recomputed.iterrows():
+        for name in additive:
+            observed, expected_value = totals.loc[key, name], row[name]
+            equal = (
+                _near(float(observed), float(expected_value))
+                if name == "effective_24h_days"
+                else observed == expected_value
+            )
+            _require(equal, f"{label} role total differs from source sums: {name}")
+    return frame, sources
+
+
+def _validate_complete_counts(summary, tables):
+    _require(
+        summary.get("status") == "complete"
+        and summary.get("acceptance_status") == "pending_primary_review"
+        and summary.get("revision_contract") == REVISION
+        and summary.get("ascertainment_contract") == ASCERTAINMENT,
+        "complete-confirmation population export contract required",
+    )
+    _require(
+        isinstance(summary.get("source_order"), list)
+        and len(summary["source_order"]) == len(SOURCE_ORDER)
+        and set(summary["source_order"]) == set(SOURCE_ORDER)
+        and summary.get("partitions") == list(ROLES)
+        and summary.get("horizons_minutes") == list(HORIZONS),
+        "population summary source/role/horizon inventory differs",
+    )
+    _require(
+        summary.get("participants_by_partition") == COMPLETE_ROLE_COUNTS
+        and type(summary.get("original_participants")) is int
+        and summary["original_participants"] == sum(COMPLETE_ROLE_COUNTS.values()),
+        "approved original population counts required",
+    )
+    _require(
+        summary.get("definitions", {}).get(
+            "base_future_completeness_minutes_by_horizon"
+        )
+        == {"30": 60, "60": 70},
+        "population summary completeness must be 60/70 minutes",
+    )
+    checked, source_frames = {}, {}
+    for name, dimensions, measures in (
+        ("input-counts.csv", (), INPUT_COLUMNS),
+        ("endpoint-counts.csv", ("horizon",), ENDPOINT_COLUMNS),
+        ("training-window-counts.csv", ("horizon", "task"), WINDOW_COLUMNS),
+    ):
+        checked[name], source_frames[name] = _complete_grid(
+            tables[name], dimensions, measures, name
+        )
+        _require(
+            type(summary.get("rows", {}).get(name)) is int
+            and summary["rows"][name] == len(checked[name]),
+            f"population summary row count differs: {name}",
+        )
+        actual = (
+            checked[name]
+            .loc[checked[name].row_type.eq("role_total")]
+            .drop(columns=["row_type", "source_id"])
+        )
+        recorded = summary.get("role_totals", {}).get(name)
+        _require(
+            isinstance(recorded, list) and len(recorded) == len(actual),
+            f"population summary role totals missing: {name}",
+        )
+        group_keys = ["partition", *dimensions]
+        records = {}
+        for row in recorded:
+            _require(
+                isinstance(row, dict) and set(row) == set(actual.columns),
+                f"population summary role total schema differs: {name}",
+            )
+            _require(
+                all(
+                    type(row[column]) is int and row[column] >= 0
+                    for column in (*dimensions, *measures)
+                    if column not in {"task", "effective_24h_days"}
+                ),
+                f"population summary role counts must be nonnegative integers: {name}",
+            )
+            key = tuple(row[column] for column in group_keys)
+            _require(
+                key not in records, f"duplicate population summary role total: {name}"
+            )
+            records[key] = row
+        for row in actual.to_dict("records"):
+            key = tuple(row[column] for column in group_keys)
+            _require(
+                key in records
+                and all(
+                    _near(row[column], records[key][column])
+                    if column == "effective_24h_days"
+                    else row[column] == records[key][column]
+                    for column in measures
+                ),
+                f"population summary/CSV role totals differ: {name}",
+            )
+    inputs = source_frames["input-counts.csv"].set_index(["source_id", "partition"])
+    endpoints = source_frames["endpoint-counts.csv"].set_index(
+        ["source_id", "partition", "horizon"]
+    )
+    windows = source_frames["training-window-counts.csv"].set_index(
+        ["source_id", "partition", "horizon", "task"]
+    )
+    _require(
+        inputs.participants.gt(0).all()
+        and inputs.groupby("partition").participants.sum().to_dict()
+        == COMPLETE_ROLE_COUNTS,
+        "input source participant counts differ from the approved role totals",
+    )
+    for source in SOURCE_ORDER:
+        for role in ROLES:
+            metadata = inputs.loc[source, role]
+            previous_endpoint = None
+            for horizon in HORIZONS:
+                endpoint = endpoints.loc[source, role, horizon]
+                _require(
+                    endpoint.base_participants == metadata.participants
+                    and endpoint.event_positive_participants
+                    <= endpoint.base_participants
+                    and endpoint.event_positive_participants <= endpoint.base_events
+                    and (endpoint.base_events == 0)
+                    == (endpoint.event_positive_participants == 0),
+                    "endpoint participant/event-positive counts are inconsistent",
+                )
+                _require(
+                    endpoint.calendar_days > 0
+                    and endpoint.observation_minutes > 0
+                    and endpoint.calendar_days * 5
+                    <= endpoint.observation_minutes
+                    <= endpoint.calendar_days * 1440
+                    and endpoint.observation_minutes
+                    == endpoint.base_evaluable_decisions * 5
+                    and _near(
+                        float(endpoint.effective_24h_days),
+                        float(endpoint.observation_minutes / 1440),
+                    ),
+                    "endpoint calendar-day/observation/base-window exposure "
+                    "is inconsistent",
+                )
+                _require(
+                    endpoint.base_evaluable_decisions
+                    == metadata.historical_base_evaluable_decisions
+                    if horizon == 30
+                    else endpoint.base_evaluable_decisions
+                    <= metadata.historical_base_evaluable_decisions,
+                    "endpoint base windows disagree with the historical input frame",
+                )
+                if previous_endpoint is not None:
+                    _require(
+                        endpoint.calendar_days <= previous_endpoint.calendar_days
+                        and endpoint.observation_minutes
+                        <= previous_endpoint.observation_minutes,
+                        "h60 complete-confirmation exposure exceeds h30",
+                    )
+                previous_endpoint = endpoint
+                for task in ("hypo", "hyper"):
+                    window = windows.loc[source, role, horizon, task]
+                    _require(
+                        window.participants == metadata.participants
+                        and window.base_evaluable_decisions
+                        == endpoint.base_evaluable_decisions,
+                        "window/endpoint participant or base-window count mismatch",
+                    )
+                    _require(
+                        window.retained_training_windows == window.supervised_rows
+                        and window.positive_training_windows
+                        <= window.retained_training_windows
+                        <= window.base_evaluable_decisions
+                        and window.positive_training_windows
+                        + window.negative_training_windows
+                        == window.retained_training_windows
+                        and window.positive_training_windows
+                        == window.confirmed_positive_labels
+                        - window.confirmed_positive_labels_outside_mask,
+                        "mask-positive/eligible window counts are inconsistent",
+                    )
+                    expected_storage = (
+                        metadata.historical_base_evaluable_decisions
+                        if role == "train"
+                        else metadata.observed_anchor_decisions
+                    )
+                    _require(
+                        window.stored_rows == expected_storage
+                        and window.historical_complete_rows
+                        == metadata.historical_base_evaluable_decisions
+                        and window.historical_task_eligible_rows
+                        <= window.historical_complete_rows
+                        <= window.stored_rows
+                        and window.supervised_rows
+                        + window.newly_excluded_supervision_rows
+                        == window.historical_task_eligible_rows
+                        and window.confirmed_positive_labels <= window.stored_rows
+                        and window.confirmed_positive_labels_outside_mask
+                        <= window.stored_rows - window.supervised_rows,
+                        "historical/storage mask count partition is inconsistent",
+                    )
+                    if horizon == 30:
+                        _require(
+                            window.newly_excluded_supervision_rows == 0,
+                            "h30 mask changes the historical complete frame",
+                        )
+                    else:
+                        first = windows.loc[source, role, 30, task]
+                        _require(
+                            window.supervised_rows <= first.supervised_rows
+                            and window.historical_task_eligible_rows
+                            == first.historical_task_eligible_rows,
+                            "horizon mask retention/historical eligibility differs",
+                        )
+    return checked
+
+
+def _build_complete_confirmation(aggregate, output):
+    aggregate, output = (Path(path).absolute() for path in (aggregate, output))
+    _require(
+        aggregate == aggregate.resolve() and aggregate.is_dir(),
+        "canonical aggregate directory required",
+    )
+    _require(
+        output == output.resolve() and not output.exists(),
+        "fresh candidate output directory required",
+    )
+    names = (
+        "population-summary.json",
+        "input-counts.csv",
+        "endpoint-counts.csv",
+        "training-window-counts.csv",
+    )
+    bindings = [_binding(aggregate / name) for name in names]
+    summary = json.loads((aggregate / names[0]).read_text())
+    tables = {
+        name: pd.read_csv(aggregate / name, dtype=str, keep_default_na=False)
+        for name in names[1:]
+    }
+    tables = _validate_complete_counts(summary, tables)
+    sources = tables["endpoint-counts.csv"].query("row_type == 'source'")
+    cohort = {
+        horizon: sources.loc[sources.horizon.eq(horizon)]
+        .groupby("source_id")
+        .sum(numeric_only=True)
+        for horizon in HORIZONS
+    }
+    input_sources = (
+        tables["input-counts.csv"]
+        .query("row_type == 'source'")
+        .set_index(["source_id", "partition"])
+    )
+    endpoint_totals = (
+        tables["endpoint-counts.csv"]
+        .query("row_type == 'role_total'")
+        .set_index(["partition", "horizon"])
+    )
+    window_totals = (
+        tables["training-window-counts.csv"]
+        .query("row_type == 'role_total' and task == 'hypo'")
+        .set_index(["partition", "horizon"])
+    )
+    numeric_rows = {
+        "tab_cgm_cohort.tex": [],
+        "tab_split.tex": [],
+        "tab_endpoint_population.tex": [],
+    }
+    plot_data = {}
+    for source in SOURCE_ORDER:
+        first, second = cohort[30].loc[source], cohort[60].loc[source]
+        values = [
+            int(second.base_participants),
+            int(first.calendar_days),
+            int(second.calendar_days),
+            int(first.base_events),
+            int(second.base_events),
+        ]
+        numeric_rows["tab_cgm_cohort.tex"].append({"label": source, "values": values})
+        participant_counts = [
+            int(input_sources.loc[(source, role), "participants"]) for role in ROLES
+        ]
+        numeric_rows["tab_split.tex"].append(
+            {
+                "label": source,
+                "values": [
+                    *participant_counts,
+                    sum(participant_counts),
+                    int(first.base_evaluable_decisions),
+                    int(second.base_evaluable_decisions),
+                ],
+            }
+        )
+        plot_data[source] = {
+            "participants": values[0],
+            "person_days": values[2],
+            "severe_hypo_events": values[4],
+            "severe_hypo_events_30": values[3],
+        }
+    numeric_rows["tab_cgm_cohort.tex"].append(
+        {
+            "label": "All development",
+            "values": [
+                sum(row["values"][column] for row in numeric_rows["tab_cgm_cohort.tex"])
+                for column in range(5)
+            ],
+        }
+    )
+    for role in ROLES:
+        for horizon in HORIZONS:
+            event, window = (
+                endpoint_totals.loc[role, horizon],
+                window_totals.loc[role, horizon],
+            )
+            numeric_rows["tab_endpoint_population.tex"].append(
+                {
+                    "label": ROLE_LABELS[role],
+                    "values": [
+                        horizon,
+                        int(event.base_evaluable_decisions),
+                        int(window.retained_training_windows),
+                        int(window.positive_training_windows),
+                        int(event.base_events),
+                        int(event.event_positive_participants),
+                        int(event.calendar_days),
+                    ],
+                }
+            )
+    numeric_rows["tab_split.tex"].append(
+        {
+            "label": "All development",
+            "values": [
+                sum(row["values"][column] for row in numeric_rows["tab_split.tex"])
+                for column in range(6)
+            ],
+        }
+    )
+    rendered_rows = {}
+    for name, rows in numeric_rows.items():
+        rendered_rows[name] = []
+        for row in rows:
+            if row["label"] == "All development":
+                rendered_rows[name].append(r"\midrule")
+            rendered_rows[name].append(
+                row["label"]
+                + " & "
+                + " & ".join(integer(value) for value in row["values"])
+                + r" \\"
+            )
+    payload = {
+        "tab_cgm_cohort.tex": table(
+            rendered_rows["tab_cgm_cohort.tex"],
+            "lrrrrr",
+            r"Source & Participants & \shortstack{Calendar days\\30 min} & "
+            r"\shortstack{Calendar days\\60 min} & "
+            r"\shortstack{Events\\30 min} & \shortstack{Events\\60 min} \\",
+            "Development participants and CGM-defined level 2 event denominators. "
+            "CGM denotes continuous glucose monitoring. Counts pool "
+            "participant-disjoint training, selection and calibration partitions. "
+            "Events require at least three consecutive five-minute readings below "
+            "54 mg/dL and an evaluable lead-in at the indicated horizon. Episodes "
+            "are merged across complete gaps of at most 30 minutes. Base decisions "
+            "require complete future intervals of 60 and 70 minutes for the 30- "
+            "and 60-minute prediction horizons, respectively. Calendar days count "
+            "distinct participant-day pairs with base decisions at each horizon. "
+            "Event and exposure denominators remain fixed across current-glucose "
+            "eligibility rules within each horizon. External cohorts are excluded.",
+            "tab:cgm_cohort",
+        ),
+        "tab_split.tex": table(
+            rendered_rows["tab_split.tex"],
+            "lrrrrrr",
+            r"Source & Training & Selection & Calibration & Total & "
+            r"\shortstack{Base windows\\30 min} & "
+            r"\shortstack{Base windows\\60 min} \\",
+            "Development participants by source and partition, with "
+            "base-evaluable decision windows at each prediction horizon. "
+            "Participant assignments precede window construction. Base-window "
+            "counts sum training, selection and calibration partitions before "
+            "task-specific supervision masks and training subsampling. "
+            "Base windows require complete future intervals "
+            "of 60 minutes at the 30-minute horizon and 70 minutes at the 60-minute "
+            "horizon. Participants are shared across horizons, whereas base "
+            "windows can differ. "
+            "A decision window is distinct from an event and an issued alarm.",
+            "tab:split",
+        ),
+        "tab_endpoint_population.tex": table(
+            rendered_rows["tab_endpoint_population.tex"],
+            "lrrrrrrr",
+            r"Partition & $h$ (min) & \shortstack{Base\\windows} & "
+            r"\shortstack{Eligible hypo\\windows} & "
+            r"\shortstack{Positive hypo\\windows} & \shortstack{Base\\events} & "
+            r"\shortstack{Event-positive\\participants} & "
+            r"\shortstack{Calendar\\days} \\",
+            "Level 2 hypoglycaemia window labels, events and exposure by partition "
+            "and prediction horizon $h$. Base windows require complete future "
+            "intervals of 60 and 70 minutes for $h=30$ and $h=60$ minutes, "
+            "respectively. Eligible hypo windows apply the hypoglycaemia "
+            "supervision mask, including observed current glucose at or above "
+            "54 mg/dL, before negative subsampling. Positive hypo windows are "
+            "confirmed level 2 onset labels within that mask. Multiple windows may "
+            "precede the same event. Base events and event-positive participants "
+            "are counted independently of current-glucose eligibility. Calendar "
+            "days include all base participants, including those without an event. "
+            "Counts pool eleven development sources rather than averaging "
+            "source-level counts.",
+            "tab:endpoint_population",
+        ),
+    }
+    report = {
+        "status": "complete",
+        "acceptance_status": "pending_primary_review",
+        "scope": "complete-confirmation",
+        "participants": int(sum(plot["participants"] for plot in plot_data.values())),
+        "calendar_days_30": int(cohort[30].calendar_days.sum()),
+        "calendar_days_60": int(cohort[60].calendar_days.sum()),
+        "events_30": int(cohort[30].base_events.sum()),
+        "events_60": int(cohort[60].base_events.sum()),
+        "base_windows_30": int(cohort[30].base_evaluable_decisions.sum()),
+        "base_windows_60": int(cohort[60].base_evaluable_decisions.sum()),
+        "table_rows": {name: len(rows) for name, rows in numeric_rows.items()},
+        "numeric_table_cells": sum(
+            len(row["values"]) for rows in numeric_rows.values() for row in rows
+        ),
+        "figure_horizon_minutes": 60,
+        "forecast_counts_included": False,
+    }
+    _require(
+        [_binding(aggregate / name) for name in names] == bindings,
+        "population aggregate changed during table generation",
+    )
+    _require(
+        output == output.resolve() and not output.exists(),
+        "fresh candidate output directory required",
+    )
+    output.mkdir(parents=True)
+    for name, text in payload.items():
+        with (output / name).open("x") as stream:
+            stream.write(text)
+    for name, data in (
+        ("cohort-figure-counts.json", plot_data),
+        (
+            "population-table-receipt.json",
+            {
+                **report,
+                "input_bindings": bindings,
+                "table_data": numeric_rows,
+                "source_summary_acceptance_status": summary["acceptance_status"],
+            },
+        ),
+    ):
+        with (output / name).open("x") as stream:
+            stream.write(json.dumps(data, indent=2, allow_nan=False) + "\n")
+    return report
+
+
+def build(aggregate: Path, output: Path, *, scope="historical"):
+    if scope == "complete-confirmation":
+        return _build_complete_confirmation(aggregate, output)
+    if scope != "historical":
+        raise ValueError("unknown population table scope")
+    return _build_historical(aggregate, output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--aggregate", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--scope", choices=("historical", "complete-confirmation"), default="historical"
+    )
     args = parser.parse_args()
-    print(json.dumps(build(args.aggregate, args.output)))
+    print(json.dumps(build(args.aggregate, args.output, scope=args.scope)))
 
 
 if __name__ == "__main__":

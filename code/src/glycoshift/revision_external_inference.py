@@ -4,11 +4,13 @@ This consumer never reads predictions, glucose records, model parameters or ECDF
 arrays, and never fits a policy. Native completed producer receipts bind every
 input ledger. Only aggregate counts and percentile intervals are exported.
 
-The CLI takes an explicit JSON ``producers`` list: one persistence fit (seed 17),
-five LSTM fits, and their five frozen compositions. Each record names ``arm``,
-``model_seed``, ``output_dir`` and either ``run_dir`` or ``recipe``. A shared
-persistence fit is reused under every LSTM seed solely for paired arithmetic;
-these aliases are never additional fits or independent participants.
+The default CLI scope takes an explicit JSON ``producers`` list: one persistence
+fit (seed 17), five LSTM fits, and their five frozen compositions. The explicit
+``lstm-control`` scope uses only the six model producers at cuts 54 and 70. Each
+record names ``arm``, ``model_seed``, ``output_dir`` and either ``run_dir`` or
+``recipe``. A shared persistence fit is reused under every LSTM seed solely for
+paired arithmetic; these aliases are never additional fits or independent
+participants.
 """
 
 from __future__ import annotations
@@ -41,11 +43,21 @@ from .revision_external import (
     _recheck_bindings,
     load_development_freeze,
 )
+from .revision_group_inference import (
+    evaluation_keys,
+    exclude_pair_records,
+    horizon_group_counts,
+    load_external_record_groups,
+    validated_horizon_counts,
+)
 from .sequences import REVISION_CONTRACT
 
 MODEL_SEEDS = (17, 23, 42, 71, 101)
 HORIZONS = (30, 60)
 ARMS = ("persistence", "lstm", "composition")
+LEGACY_COMPARISON_SCOPE = "legacy-with-composition"
+LSTM_CONTROL_COMPARISON_SCOPE = "lstm-control"
+COMPARISON_SCOPES = (LEGACY_COMPARISON_SCOPE, LSTM_CONTROL_COMPARISON_SCOPE)
 _IDS = ["source_id", "participant_id"]
 _EVENT_IDS = [*_IDS, "event_id"]
 _EVENT_TRUTH = [*_EVENT_IDS, "event_onset"]
@@ -108,20 +120,39 @@ def _cuts(values: Sequence[int]) -> tuple[int, ...]:
     return result
 
 
-def _contrasts(cuts: tuple[int, ...]) -> dict[str, dict[tuple[str, float], float]]:
+def _comparison_arms(comparison_scope: str) -> tuple[str, ...]:
+    if comparison_scope not in COMPARISON_SCOPES:
+        raise ValueError("unknown external comparison scope")
+    return ARMS if comparison_scope == LEGACY_COMPARISON_SCOPE else ARMS[:2]
+
+
+def _contrasts(
+    cuts: tuple[int, ...],
+    comparison_scope: str = LEGACY_COMPARISON_SCOPE,
+) -> dict[str, dict[tuple[str, float], float]]:
+    arms = _comparison_arms(comparison_scope)
     output = {}
     for cut in cuts:
-        for arm in ARMS:
+        for arm in arms:
             output[f"{arm}_at_{cut}"] = {(arm, cut): 1.0}
         for left, right in (
             ("lstm", "persistence"),
             ("composition", "persistence"),
             ("composition", "lstm"),
         ):
+            if left not in arms or right not in arms:
+                continue
             output[f"{left}_minus_{right}_at_{cut}"] = {
                 (left, cut): 1.0,
                 (right, cut): -1.0,
             }
+    if comparison_scope == LSTM_CONTROL_COMPARISON_SCOPE:
+        output["lstm_minus_persistence_contrast_change_70_minus_54"] = {
+            ("lstm", 70): 1.0,
+            ("persistence", 70): -1.0,
+            ("lstm", 54): -1.0,
+            ("persistence", 54): 1.0,
+        }
     return output
 
 
@@ -182,6 +213,9 @@ def paired_external_inference(
     replicates: int = 1000,
     bootstrap_seed: int = 20260810,
     include_replicates: bool = False,
+    participant_groups: Mapping[tuple[str, str], str] | None = None,
+    allow_horizon_population_difference: bool = False,
+    comparison_scope: str = LEGACY_COMPARISON_SCOPE,
 ) -> dict:
     """Use the fixed-frame joint oracle; smaller complete seed sets are toy-only.
 
@@ -190,7 +224,11 @@ def paired_external_inference(
     is inferred separately, with identical multiplicities within each draw.
     """
     cuts = _cuts(glucose_cuts)
-    contrasts = _contrasts(cuts)
+    contrasts = _contrasts(cuts, comparison_scope)
+    if comparison_scope == LSTM_CONTROL_COMPARISON_SCOPE and (
+        cuts != (54, 70) or model_seed_order != MODEL_SEEDS
+    ):
+        raise ValueError("lstm-control requires cuts54/70 and all five model seeds")
     common = dict(
         contrasts=contrasts,
         source_order=source_order,
@@ -199,6 +237,8 @@ def paired_external_inference(
         replicates=replicates,
         bootstrap_seed=bootstrap_seed,
         include_replicates=include_replicates,
+        participant_groups=participant_groups,
+        allow_horizon_population_difference=allow_horizon_population_difference,
     )
     # Burden validates the complete same-horizon truth even when sensitivity is
     # undefined. No sparse-case exception is allowed to hide an alignment error.
@@ -246,6 +286,14 @@ def paired_external_inference(
                     "observation_minutes": float(part.observation_minutes.sum()),
                 }
             )
+            if participant_groups is not None:
+                group_count, positive_group_count = horizon_group_counts(
+                    part, participant_groups
+                )
+                counts[-1].update(
+                    group_count=group_count,
+                    event_positive_group_count=positive_group_count,
+                )
     # This also validates sensitivity/count consistency if no resampling is
     # possible. Keep NaNs for event-free participants, never impute zeros.
     for evaluation in evaluations.values():
@@ -275,7 +323,10 @@ def paired_external_inference(
         sensitivity_result = joint_fixed_frame_bootstrap(
             evaluations, metric="fixed_sensitivity", **common
         )
-        sensitivity_result["interval_status"] = "participant_percentile_bootstrap"
+        sensitivity_result["interval_status"] = (
+            "group_percentile_bootstrap" if participant_groups is not None
+            else "participant_percentile_bootstrap"
+        )
     else:
         sensitivity_result = {
             "metric": "fixed_sensitivity",
@@ -284,7 +335,7 @@ def paired_external_inference(
             "model_seeds": list(model_seed_order),
             "horizons": list(HORIZONS),
             "source_order": list(source_order),
-            "resampling_unit": "source_scoped_participant",
+            "resampling_unit": metrics[_METRICS[1]]["resampling_unit"],
             "population": "event_positive_in_at_least_one_horizon",
             "stratification": "source_by_horizon_positivity_pattern",
             "aggregation": "equal_source_then_equal_horizon_and_model_seed",
@@ -293,14 +344,21 @@ def paired_external_inference(
                 evaluations, contrasts, source_order, model_seed_order
             ),
         }
-    if all(positives) and min(positives) < 2:
+    support_counts = [
+        row.get("event_positive_group_count", row["event_positive_participant_count"])
+        for row in counts
+    ]
+    if all(positives) and min(support_counts) < 2:
         sensitivity_result["interval_status"] = (
-            "descriptive_sparse_event_positive_participants"
+            "descriptive_sparse_event_positive_groups" if participant_groups is not None
+            else "descriptive_sparse_event_positive_participants"
         )
         sparse_horizons = {
             row["horizon_minutes"]
             for row in counts
-            if row["event_positive_participant_count"] < 2
+            if row.get(
+                "event_positive_group_count", row["event_positive_participant_count"]
+            ) < 2
         }
         for result in sensitivity_result["contrasts"].values():
             result["ci_low"] = result["ci_high"] = None
@@ -311,14 +369,29 @@ def paired_external_inference(
                 result["per_horizon"][horizon]["ci_high"] = None
     metrics["fixed_sensitivity"] = sensitivity_result
     for metric in _METRICS[1:]:
-        metrics[metric]["interval_status"] = "participant_percentile_bootstrap"
+        metrics[metric]["interval_status"] = (
+            "undefined_horizon_population_draws" if any(
+                value.get("undefined_replicate_count", 0)
+                for value in metrics[metric]["contrasts"].values()
+            ) else (
+                "group_percentile_bootstrap" if participant_groups is not None
+                else "participant_percentile_bootstrap"
+            )
+        )
+    if participant_groups is None:
+        # Preserve the original external-consumer stratum schema by default.
+        for payload in metrics.values():
+            for stratum in payload.get("stratum_counts", []):
+                stratum.pop("group_count", None)
     return {
+        "comparison_scope": comparison_scope,
+        "comparison_arms": list(_comparison_arms(comparison_scope)),
         "counts": counts,
         "metrics": metrics,
         "model_seed_aggregation": (
             "mean_of_complete_LSTM_seed_set_with_one_shared_control_fit"
         ),
-        "independent_unit": "source_scoped_participant",
+        "independent_unit": metrics[_METRICS[1]]["resampling_unit"],
         "seed_variability_is_participant_uncertainty": False,
         "horizon_truth": "each_horizon_own_Ebase_and_Dbase; exact_within_horizon",
         "burden_population": "all_base_participants_including_event_free",
@@ -327,7 +400,10 @@ def paired_external_inference(
 
 def _producer_specifications(
     values: Sequence[ExternalProducer | Mapping],
+    *,
+    comparison_scope: str = LEGACY_COMPARISON_SCOPE,
 ) -> list[ExternalProducer]:
+    arms = _comparison_arms(comparison_scope)
     result = []
     for value in values:
         if isinstance(value, ExternalProducer):
@@ -350,7 +426,7 @@ def _producer_specifications(
         if (
             isinstance(producer.model_seed, bool)
             or not isinstance(producer.model_seed, int)
-            or producer.arm not in ARMS
+            or producer.arm not in arms
             or (producer.arm == "composition") != (producer.recipe is not None)
             or (producer.arm != "composition") != (producer.run_dir is not None)
         ):
@@ -359,13 +435,15 @@ def _producer_specifications(
             )
         result.append(producer)
     expected = {("persistence", 17)} | {
-        (arm, seed) for arm in ("lstm", "composition") for seed in MODEL_SEEDS
+        (arm, seed) for arm in arms if arm != "persistence" for seed in MODEL_SEEDS
     }
     if {(p.arm, p.model_seed) for p in result} != expected or len(result) != len(
         expected
     ):
         raise ValueError(
-            "one persistence seed17 and all five LSTM/composition seeds are required"
+            "one persistence seed17 and all five "
+            + ("LSTM/composition" if "composition" in arms else "LSTM")
+            + " seeds are required"
         )
     if len({p.output_dir.resolve() for p in result}) != len(result):
         raise ValueError("producer output directories must be distinct")
@@ -376,6 +454,27 @@ def _producer_specifications(
             "LSTM fits and composition recipes must have distinct canonical identities"
         )
     return result
+
+
+def _manifest_producers(
+    manifest: Mapping,
+    *,
+    comparison_scope: str = LEGACY_COMPARISON_SCOPE,
+) -> list[ExternalProducer]:
+    """Bind explicit reduced scope without changing historical manifest shape."""
+    _comparison_arms(comparison_scope)
+    allowed = {"producers", "comparison_scope"}
+    if (
+        not isinstance(manifest, Mapping)
+        or set(manifest) not in (allowed, {"producers"})
+        or manifest.get("comparison_scope", LEGACY_COMPARISON_SCOPE)
+        != comparison_scope
+        or not isinstance(manifest.get("producers"), list)
+    ):
+        raise ValueError("producer manifest fields/comparison scope differ")
+    return _producer_specifications(
+        manifest["producers"], comparison_scope=comparison_scope
+    )
 
 
 def _receipt_files(root: Path, receipt: dict) -> dict[str, dict]:
@@ -472,6 +571,9 @@ def _native_receipt(
         or counts["tail_rows"] > counts["decision_rows"]
     ):
         raise ValueError("producer counts are inconsistent")
+    horizon_counts = validated_horizon_counts(
+        receipt.get("horizon_participant_counts"), counts["normalized_participants"]
+    )
     bindings = _receipt_files(root, receipt)
     if _read_json(root / "status.json") != {
         "status": "complete",
@@ -485,6 +587,7 @@ def _native_receipt(
         or report.get("freeze_id") != freeze["freeze_id"]
         or report.get("partition") != partition
         or report.get("external_already_exposed") is not True
+        or report.get("horizon_participant_counts") != horizon_counts
     ):
         raise ValueError("producer summary identity/role differs")
     if raw_entry is not None:
@@ -501,6 +604,7 @@ def _native_receipt(
             or audit.get("global_cohort_audit") != receipt["global_cohort_audit"]
             or any(audit.get(name) != counts[name] for name in _COUNTS)
             or report.get("counts") != counts
+            or audit.get("horizon_participant_counts") != horizon_counts
             or report.get("thresholds_fitted_on_external") is not False
         ):
             raise ValueError(
@@ -617,9 +721,12 @@ def _accept_producers(
     producers: list[ExternalProducer],
     partition: str,
     cuts: tuple[int, ...],
+    *,
+    comparison_scope: str = LEGACY_COMPARISON_SCOPE,
 ) -> tuple[dict, dict, dict[tuple[str, int], _AcceptedProducer]]:
     if partition not in _ALLOWED:
         raise ValueError("only already exposed Loop/HUPA roles are allowed")
+    producers = _producer_specifications(producers, comparison_scope=comparison_scope)
     accepted = {}
     freeze = source = development_sources = None
     for producer in (p for p in producers if p.arm != "composition"):
@@ -703,6 +810,7 @@ def _accept_producers(
                     "tail_rows",
                     "source_normalization_contract",
                     "global_cohort_audit",
+                    "horizon_participant_counts",
                 )
             )
             or receipt.get("scored_rows") != receipt["counts"]["decision_rows"]
@@ -720,7 +828,14 @@ def _accept_producers(
             report,
         )
     first_counts = accepted["persistence", 17].receipt["counts"]
-    if any(item.receipt["counts"] != first_counts for item in accepted.values()):
+    first_horizon_counts = accepted["persistence", 17].receipt.get(
+        "horizon_participant_counts"
+    )
+    if any(
+        item.receipt["counts"] != first_counts
+        or item.receipt.get("horizon_participant_counts") != first_horizon_counts
+        for item in accepted.values()
+    ):
         raise ValueError(
             "external producer input populations/counts differ; no intersection allowed"
         )
@@ -925,10 +1040,15 @@ def _load_evaluations(
                 _IDS,
             )
             current = (base_events[_EVENT_TRUTH], exposure[_EXPOSURE])
-            if len(exposure) != (
-                producer.receipt["counts"]["predicted_participants"]
-                - producer.receipt["counts"]["zero_base_exposure_participants"]
-            ):
+            horizon_counts = producer.receipt.get("horizon_participant_counts")
+            expected_participants = (
+                horizon_counts[str(horizon)]["evaluated_participants"]
+                if horizon_counts is not None else (
+                    producer.receipt["counts"]["predicted_participants"]
+                    - producer.receipt["counts"]["zero_base_exposure_participants"]
+                )
+            )
+            if len(exposure) != expected_participants:
                 raise ValueError(
                     "independent base participant count differs from native receipt"
                 )
@@ -1027,22 +1147,75 @@ def run_external_paired_inference(
     producers: Sequence[ExternalProducer | Mapping],
     output_dir: Path,
     glucose_cuts: tuple[int, ...] = (54,),
+    group_manifest_path: Path | None = None,
+    comparison_scope: str = LEGACY_COMPARISON_SCOPE,
 ) -> Path:
     """Validate the actual accepted freeze/receipts, infer, export aggregates only."""
     cuts = _cuts(glucose_cuts)
-    specifications = _producer_specifications(producers)
+    specifications = _producer_specifications(
+        producers, comparison_scope=comparison_scope
+    )
+    if comparison_scope == LSTM_CONTROL_COMPARISON_SCOPE and cuts != (54, 70):
+        raise ValueError("lstm-control requires cuts54/70 and all five model seeds")
     output_dir = Path(output_dir)
     if output_dir.exists():
         raise FileExistsError("refusing to overwrite an external inference output")
     freeze_path = Path(freeze_path)
     freeze_binding = _binding(freeze_path)
     freeze, source, accepted = _accept_producers(
-        freeze_path, specifications, partition, cuts
+        freeze_path, specifications, partition, cuts, comparison_scope=comparison_scope
     )
+    record_groups = None
+    if group_manifest_path is not None:
+        record_groups = load_external_record_groups(
+            group_manifest_path, freeze_id=freeze["freeze_id"], partition=partition,
+            source=source, normalized_participants=accepted[
+                "persistence", 17
+            ].receipt["counts"]["normalized_participants"],
+        )
     evaluations, descriptive = _load_evaluations(accepted, source["source_id"], cuts)
-    inference = paired_external_inference(
-        evaluations, source_order=(source["source_id"],), glucose_cuts=cuts
+    groups = None if record_groups is None else record_groups.restrict(
+        evaluation_keys(evaluations)
     )
+    horizon_populations_differ = len({
+        frozenset(value.participants[_IDS].itertuples(index=False, name=None))
+        for value in evaluations.values()
+    }) > 1
+    inference = paired_external_inference(
+        evaluations, source_order=(source["source_id"],), glucose_cuts=cuts,
+        participant_groups=groups,
+        allow_horizon_population_difference=horizon_populations_differ,
+        comparison_scope=comparison_scope,
+    )
+    if record_groups is not None:
+        inference["correlation_handling"] = record_groups.aggregate_counts()
+        excluded = exclude_pair_records(evaluations, record_groups.pair)
+        excluded_inference = paired_external_inference(
+            excluded, source_order=(source["source_id"],), glucose_cuts=cuts,
+            participant_groups=record_groups.restrict(evaluation_keys(excluded)),
+            allow_horizon_population_difference=True,
+            comparison_scope=comparison_scope,
+        )
+        excluded_inference.update({
+            "analysis": "exclude_both_verified_partial_overlap_records",
+            "excluded_record_count": 2,
+            "thresholds_refit": False, "fitted_on_external": False,
+            "descriptive_policies": [
+                {
+                    "arm": key.arm, "training_seed": key.model_seed,
+                    "source_id": source["source_id"], "glucose_cut": key.glucose_cut,
+                    "horizon_minutes": key.horizon_minutes, "nominal_fapd": 0.5,
+                    "threshold": value.threshold,
+                    **_plain(_aggregate(value.participants)),
+                }
+                for key, value in excluded.items()
+                if key.arm != "persistence" or key.model_seed == 17
+            ],
+        })
+        inference["named_sensitivities"] = {
+            "exclude_verified_pair_records": excluded_inference
+        }
+        record_groups.recheck()
     # A producer changing during the consumer is not accepted merely because its
     # ledger was internally consistent when first read.
     _bound_file(freeze_binding)
@@ -1069,7 +1242,9 @@ def run_external_paired_inference(
         "bootstrap_replicates": 1000,
         "bootstrap_seed": 20260810,
         "actual_fit_counts": {"persistence": 1, "lstm": len(MODEL_SEEDS)},
-        "derived_composition_recipe_count": len(MODEL_SEEDS),
+        "derived_composition_recipe_count": sum(
+            arm == "composition" for arm, _ in accepted
+        ),
         "native_completed_producer_count": len(accepted),
         "shared_control_training_seed": 17,
         "descriptive_policies": descriptive,
@@ -1080,23 +1255,29 @@ def run_external_paired_inference(
     output_dir.mkdir(parents=True, exist_ok=False)
     _json(output_dir / "external-paired-inference.json", report)
     rows = []
-    for metric, payload in inference["metrics"].items():
-        for name, result in payload["contrasts"].items():
-            for horizon, values in [
-                ("equal_horizon_mean", result),
-                *result["per_horizon"].items(),
-            ]:
-                rows.append(
-                    {
-                        "metric": metric,
-                        "contrast": name,
-                        "horizon_minutes": horizon,
-                        "estimate": values["estimate"],
-                        "ci_low": values["ci_low"],
-                        "ci_high": values["ci_high"],
-                        "interval_status": payload["interval_status"],
-                    }
-                )
+    analyses = {"primary": inference, **inference.get("named_sensitivities", {})}
+    for analysis, analysis_values in analyses.items():
+        for metric, payload in analysis_values["metrics"].items():
+            for name, result in payload["contrasts"].items():
+                for horizon, values in [
+                    ("equal_horizon_mean", result),
+                    *result["per_horizon"].items(),
+                ]:
+                    rows.append(
+                        {
+                            "metric": metric,
+                            "contrast": name,
+                            "horizon_minutes": horizon,
+                            "estimate": values["estimate"],
+                            "ci_low": values["ci_low"],
+                            "ci_high": values["ci_high"],
+                            "interval_status": payload["interval_status"],
+                            **(
+                                {"analysis": analysis}
+                                if record_groups is not None else {}
+                            ),
+                        }
+                    )
     pd.DataFrame(rows).to_csv(output_dir / "external-paired-inference.csv", index=False)
     _json(
         output_dir / "status.json",
@@ -1112,13 +1293,22 @@ def main() -> None:
     parser.add_argument("--partition", choices=tuple(_ALLOWED), required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--glucose-cut", type=int, action="append", choices=(54, 70))
+    parser.add_argument("--group-manifest", type=Path)
+    parser.add_argument(
+        "--comparison-scope", choices=COMPARISON_SCOPES,
+        default=LEGACY_COMPARISON_SCOPE,
+    )
     arguments = parser.parse_args()
     run_external_paired_inference(
         arguments.freeze,
         partition=arguments.partition,
-        producers=_read_json(arguments.manifest)["producers"],
+        producers=_manifest_producers(
+            _read_json(arguments.manifest), comparison_scope=arguments.comparison_scope
+        ),
         output_dir=arguments.output,
         glucose_cuts=tuple(arguments.glucose_cut or (54,)),
+        group_manifest_path=arguments.group_manifest,
+        comparison_scope=arguments.comparison_scope,
     )
 
 

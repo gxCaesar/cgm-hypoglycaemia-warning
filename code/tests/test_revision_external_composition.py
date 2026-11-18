@@ -175,6 +175,11 @@ def test_frozen_score_mapping_full_tail_zero_event_burden_and_typed_shards(
     assert emitted["alarm_count"] == report["policies"][0]["emitted_alarm_count"]
     assert emitted["median"] == 120.0
     receipt = json.loads((output / "run-receipt.json").read_text())
+    assert receipt["horizon_participant_counts"] == report["horizon_participant_counts"]
+    assert receipt["horizon_participant_counts"] == {
+        str(h): {"evaluated_participants": 2, "zero_base_exposure_participants": 0}
+        for h in (30, 60)
+    }
     assert receipt["producer_kind"] == "frozen_step_ecdf_composition"
     assert receipt["recipe"] == _binding(recipe)
     assert receipt["member_receipts"] == {
@@ -189,6 +194,88 @@ def test_frozen_score_mapping_full_tail_zero_event_burden_and_typed_shards(
     assert not (output / "run-receipt.pending.json").exists()
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         _run(tmp_path, freeze, recipe, outputs)
+
+
+def test_composition_retains_full_predictions_with_horizon_specific_exposure(
+    tmp_path, monkeypatch,
+):
+    original = external.build_participant_replay
+
+    def replay_with_one_missing_horizon(frame, *args, **kwargs):
+        replay = original(frame, *args, **kwargs)
+        if frame.participant_id.iloc[0] == "synthetic-B":
+            replay.timeline["base_evaluable_60"] = False
+            replay.events[60] = replay.events[60].iloc[:0].copy()
+            replay.exposure[60] = replay.exposure[60].iloc[:0].copy()
+        return replay
+
+    monkeypatch.setattr(
+        external, "build_participant_replay", replay_with_one_missing_horizon
+    )
+    freeze, recipe, outputs = _prepared(tmp_path, monkeypatch)
+    output = _run(tmp_path, freeze, recipe, outputs)
+    counts = {
+        "30": {"evaluated_participants": 2, "zero_base_exposure_participants": 0},
+        "60": {"evaluated_participants": 1, "zero_base_exposure_participants": 1},
+    }
+    receipt = json.loads((output / "run-receipt.json").read_text())
+    report = json.loads((output / "exportable/fixed-frame-summary.json").read_text())
+    audit = json.loads((output / "private/composition-input-receipt.json").read_text())
+    assert receipt["horizon_participant_counts"] == counts
+    assert report["horizon_participant_counts"] == counts
+    assert audit["horizon_participant_counts"] == counts
+    assert {row["horizon_minutes"]: row["participant_count"]
+            for row in report["policies"]} == {30: 2, 60: 1}
+    assert len(pd.read_parquet(output / "private/predictions")) == 140
+    assert len(pd.read_parquet(output / "private/endpoints/exposure-60")) == 1
+
+
+def test_composition_preserves_empty_endpoints_for_normalized_unscored_record(
+    tmp_path, monkeypatch,
+):
+    original = external.build_participant_replay
+
+    def replay_with_unscored_record(frame, *args, **kwargs):
+        replay = original(frame, *args, **kwargs)
+        if frame.participant_id.iloc[0] == "synthetic-B":
+            replay.timeline = replay.timeline.iloc[:0].copy()
+            for h in (30, 60):
+                replay.events[h] = replay.events[h].iloc[:0].copy()
+                replay.exposure[h] = replay.exposure[h].iloc[:0].copy()
+        return replay
+
+    monkeypatch.setattr(
+        external, "build_participant_replay", replay_with_unscored_record
+    )
+    freeze, recipe, outputs = _prepared(tmp_path, monkeypatch)
+    output = _run(tmp_path, freeze, recipe, outputs)
+    receipt = json.loads((output / "run-receipt.json").read_text())
+    assert receipt["counts"]["normalized_participants"] == 2
+    assert receipt["counts"]["predicted_participants"] == 1
+    for h in (30, 60):
+        files = list((output / f"private/endpoints/exposure-{h}").glob("*.parquet"))
+        assert len(files) == 2
+        assert receipt["horizon_participant_counts"][str(h)] == {
+            "evaluated_participants": 1, "zero_base_exposure_participants": 1,
+        }
+
+
+def test_member_frames_reject_horizon_expansion_even_if_both_members_agree(
+    tmp_path, monkeypatch,
+):
+    _, _, outputs = _prepared(tmp_path, monkeypatch)
+    paths, summaries = {}, {}
+    for member, output in outputs.items():
+        file = sorted((output / "private/predictions").glob("*.parquet"))[0]
+        frame = pd.read_parquet(file)
+        frame["base_evaluable_60"] = True
+        paths[member] = tmp_path / f"known-bad-{member}.parquet"
+        frame.to_parquet(paths[member], index=False)
+        summaries[member] = json.loads((output / "run-receipt.json").read_text())[
+            "model_summary_snapshot"
+        ]
+    with pytest.raises(ValueError, match="historical base frame"):
+        consumer._member_frames(paths, summaries, "external_loop")
 
 
 @pytest.mark.parametrize("defect", ["missing", "duplicate", "truth"])

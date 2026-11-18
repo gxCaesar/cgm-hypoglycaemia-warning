@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${PY:-python3}" "$HERE/build_corrected_figures.py" "$@"
+exec "${PY:-python3}" "$HERE/build_reduced_figures.py" "$@"

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -645,7 +646,22 @@ def _catalogue_summary(differences: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([aggregate, pooled], ignore_index=True)
 
 
-def run_event_sensitivity(config: dict) -> Path:
+@dataclass
+class EventSensitivityInputs:
+    audit: dict
+    prepared: Path
+    sources: tuple[str, ...]
+    replay_config: dict
+    entries: list[dict]
+    selected: set[tuple[str, str]]
+    endpoints: dict
+    runs: list[dict]
+    normalized_root: Path
+    output: Path
+
+
+def validate_event_sensitivity_inputs(config: dict) -> EventSensitivityInputs:
+    """Apply the historical accepted-input gates without producing any outputs."""
     if config.get("revision_contract") != REVISION_CONTRACT or (
         config.get("partition") != "selection"
     ):
@@ -805,6 +821,20 @@ def run_event_sensitivity(config: dict) -> Path:
         raise ValueError("sensitivity output overlaps accepted inputs")
     if output.exists() and any(output.iterdir()):
         raise FileExistsError("refusing to overwrite a sensitivity output")
+    return EventSensitivityInputs(
+        audit, prepared, sources, replay_config, entries, selected, endpoints,
+        runs, normalized_root, output,
+    )
+
+
+def run_event_sensitivity(config: dict) -> Path:
+    inputs = validate_event_sensitivity_inputs(config)
+    output, entries, sources, runs = (
+        inputs.output, inputs.entries, inputs.sources, inputs.runs
+    )
+    replay_config, endpoints, normalized_root = (
+        inputs.replay_config, inputs.endpoints, inputs.normalized_root
+    )
     private, exportable = output / "private", output / "exportable"
     private.mkdir(parents=True, exist_ok=True)
     exportable.mkdir()

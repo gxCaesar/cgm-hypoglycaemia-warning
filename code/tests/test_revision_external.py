@@ -308,6 +308,94 @@ def _deep_loader(run_dir, *, device):
     )
 
 
+def _reduced_policy_fixture(tmp_path):
+    _, runs, _ = _fixture(tmp_path)
+    entry = runs[0]
+    config, summary = entry["config"]["snapshot"], entry["model_summary"]["snapshot"]
+    config["protocol"]["ascertainment_contract"] = "2026-11-09-complete-confirmation"
+    entry["comparison_scope"] = "lstm-control"
+    for horizon in (30, 60):
+        entry["cut_policies"]["54"][str(horizon)].pop("1.0")
+    for task in TASKS:
+        summary["tasks"][task]["mask_column"] = f"{task}_training_mask"
+    return entry, summary, config
+
+
+def test_explicit_reduced_policies_accept_only_four_budget05_conditions(tmp_path):
+    entry, summary, config = _reduced_policy_fixture(tmp_path)
+    assert set(external._policies(entry, summary, config)) == {
+        (cut, horizon, "0.5") for cut in (54, 70) for horizon in (30, 60)
+    }
+    # Keeping the original full training policies does not authorize external1.0.
+    assert set(summary["tasks"]["hypo_30"]["fixed_frame_policies"]) == {"0.5", "1.0"}
+
+
+@pytest.mark.parametrize("defect", [
+    "missing_cut70", "extra_budget", "unmarked", "unknown_scope",
+    "legacy_masks", "wrong_mask_column",
+])
+def test_reduced_budget_exception_requires_its_explicit_complete_contract(
+    tmp_path, defect,
+):
+    entry, summary, config = _reduced_policy_fixture(tmp_path)
+    if defect == "missing_cut70":
+        entry["cut_policies"].pop("70")
+    elif defect == "extra_budget":
+        entry["cut_policies"]["54"]["30"]["1.0"] = {
+            "policy": summary["tasks"]["hypo_30"]["fixed_frame_policies"]["1.0"]
+        }
+    elif defect == "unmarked":
+        entry.pop("comparison_scope")
+    elif defect == "unknown_scope":
+        entry["comparison_scope"] = "automatic"
+    elif defect == "legacy_masks":
+        config["protocol"].pop("ascertainment_contract")
+    else:
+        summary["tasks"]["hypo_60"]["mask_column"] = "base_evaluable"
+    with pytest.raises(ValueError):
+        external._policies(entry, summary, config)
+
+
+def test_corrected_external_records_can_have_only_one_evaluable_horizon(tmp_path):
+    freeze_path, runs, _ = _fixture(tmp_path, families=("persistence",))
+    freeze = json.loads(freeze_path.read_text())
+    source = freeze["partitions"]["external_loop"]
+    normalized = Path(source["input_path"])
+    frame = pd.read_parquet(normalized)
+    # Three context readings and twelve future readings give one complete60
+    # anchor but no complete70 anchor for synthetic-B.
+    short = frame.loc[frame.participant_id.eq("synthetic-B")].iloc[:15]
+    frame = pd.concat([short, frame.loc[frame.participant_id.eq("synthetic-A")]])
+    frame.to_parquet(normalized, index=False)
+    source["normalized_inputs"] = [_binding(normalized)]
+    entry = freeze["runs"][0]
+    config_path = Path(entry["config"]["binding"]["path"])
+    config = load_config(config_path)
+    config["protocol"]["ascertainment_contract"] = "2026-11-09-complete-confirmation"
+    config["data"]["minimum_day_coverage"] = 0.01
+    save_config(config, config_path)
+    entry["config"] = {
+        "binding": _binding(config_path),
+        "snapshot": {k: v for k, v in config.items() if k != "_config_path"},
+    }
+    freeze_path.write_text(json.dumps(freeze))
+    output = tmp_path / "outer-different-horizons"
+    external.run_revision_external(
+        freeze_path, run_dir=Path(runs[0]["run_dir"]),
+        partition="external_loop", output_dir=output,
+    )
+    receipt = json.loads((output / "run-receipt.json").read_text())
+    assert receipt["horizon_participant_counts"] == {
+        "30": {"evaluated_participants": 2, "zero_base_exposure_participants": 0},
+        "60": {"evaluated_participants": 1, "zero_base_exposure_participants": 1},
+    }
+    for horizon, count in ((30, 2), (60, 1)):
+        table = pd.read_parquet(
+            output / f"private/evaluations/54/{horizon}/0.5/participants"
+        )
+        assert len(table) == count
+
+
 def test_frozen_control_and_deep_share_independent_full_timeline_without_fit(
     tmp_path, monkeypatch
 ):

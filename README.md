@@ -1,9 +1,11 @@
 # CGM hypoglycaemia warning
 
-Research code for retrospective, source-separated warning of clinically significant
-hypoglycaemia 30 and 60 minutes ahead. The package includes the scoring definition,
-trained model families, calibration, score composition, analysis tools, scientific
-configuration templates and synthetic tests. It is not a clinical deployment system.
+Scientific implementation for *Glucose eligibility shapes comparisons of hypoglycaemia
+warning models across cohorts*. The study compares six warning methods at 30 and 60
+minutes across eleven development sources. The primary contrast is the change from
+54 to 70 mg/dL in the LSTM-minus-current-glucose sensitivity difference. The software
+also supports the fixed outer holdout, event-definition and source-influence analyses,
+and development-fixed LSTM/control evaluation in Loop and HUPA-UCM.
 
 ## Environment and synthetic example
 
@@ -47,170 +49,80 @@ applicable licence terms. The external cohort has its own
 access conditions. Keep development and external inputs in separate paths. Never use
 external labels for model, checkpoint, threshold or analysis selection.
 
-Aggregate numerical results and plot inputs are archived on
-[Zenodo, version 2.0.0](https://doi.org/10.5281/zenodo.24072450) and provided in the companion
-[Supplementary Data](https://github.com/gxCaesar/cgm-hypoglycaemia-warning/releases/download/v0.3.0/cgm-hypoglycaemia-warning-supporting-data.zip) under CC BY 4.0. The underlying clinical data retain
-their original access conditions and licence terms. Participant records,
-temporal traces and fitted weights are not redistributed.
+The companion Supplementary Data supplies the numerical results and aggregate
+plotting inputs for this manuscript. It is distributed under CC BY 4.0. Earlier
+repository releases and archived data are separate versions and do not contain
+these revised results. Clinical records, individual trajectories and fitted weights
+are excluded and retain their original access conditions.
 
-The `code/configs/*.template.yaml` files preserve scientific parameters, including
-source membership, participant split seed and fractions, context lengths, labels,
-training settings and evaluation settings. The split implementation is in
-`code/src/glycoshift/split.py`; it assigns participants within source before windows.
-This release does not expose participant assignments or local input identity bindings.
-The corresponding template fields are unset. They are deliberate prerequisites, and
-the unchanged validation code rejects these templates for real-data execution until
-a licensed, locally validated input configuration is available. No command here
-disables that validation or constructs replacement scientific bindings.
+## Licensed-data preparation and analysis
 
-Once a valid local configuration and data have been prepared, the matched
-level-2 workflow is:
+Configuration templates preserve scientific settings while leaving local licensed-input
+identities unset. Real-data validation remains fail closed until those inputs are
+available. Participant splits are assigned within source before overlapping windows.
+No supplied command constructs substitute identities or disables data validation.
+
+With a valid local configuration, prepare and fit the original participant split:
 
 ```bash
-PYTHONPATH=code/src .venv/bin/python -m glycoshift.revision_prepare \
-  --config local.yaml --normalized data/development-normalized \
-  --legacy-windows data/participant-window-shards --output outputs/replay
-PYTHONPATH=code/src .venv/bin/python -m glycoshift.revision_runner \
-  --config local.yaml --prepared outputs/replay --architecture lstm \
-  --seed 17 --output outputs/lstm-17
-PYTHONPATH=code/src .venv/bin/python -m glycoshift.revision_baselines \
-  --config local.yaml --prepared outputs/replay --baseline persistence \
-  --seed 17 --output outputs/persistence
+PYTHONPATH=code/src python -m glycoshift.revision_prepare --config local.yaml --normalized data/development-normalized --legacy-windows data/participant-window-shards --output outputs/replay
+PYTHONPATH=code/src python -m glycoshift.revision_runner --config local.yaml --prepared outputs/replay --architecture lstm --seed 17 --output outputs/lstm-17
+PYTHONPATH=code/src python -m glycoshift.revision_baselines --config local.yaml --prepared outputs/replay --baseline persistence --seed 17 --output outputs/persistence
 ```
 
-These paths are examples, not supplied data or fitted models. Preparation binds
-the original source-scoped participant assignments and retained windows without
-resplitting participants. Neural comparisons use all five model seeds
-17, 23, 42, 71 and 101; the shared persistence control is fitted once. The same
-runner accepts `--architecture tcn` with its corresponding architecture
-configuration. Other classical options are `linear`, `summary_logistic` and
-`xgboost`. They use all training rows retained by each task's actual mask.
+Repeat neural fitting at seeds 17, 23, 42, 71 and 101 for LSTM and temporal convolutional
+network configurations. The four classical arms are `persistence`, `linear`,
+`summary_logistic` and `xgboost`. Their feature, target-mask and training rules are
+implemented in `revision_baselines`. XGBoost requires its pinned optional dependency
+in `code/pyproject.toml`. The fixed holdout uses outer fold 0, LSTM seed 17 and its
+shared persistence comparator. Its points are descriptive and have no generalization CI.
 
-This is a release of the scientific implementation and parameter templates, not a
-claim that the complete real-data experiment is runnable from the archive alone.
-Creating valid local input bindings remains an explicit prerequisite. It requires the
-licensed source data and the study's data preparation conditions. The synthetic
-example and function-level tests run without those inputs.
+The analysis modules expose input schemas in their module documentation and `--help`:
 
-## Analyses and figures
-
-Summarise the development population from the complete `revision_prepare` output
-before fitting models:
-
-```bash
-PYTHONPATH=code/src .venv/bin/python code/scripts/summarise_revision_population.py \
-  --prepared outputs/replay --output outputs/population
-PYTHONPATH=code/src .venv/bin/python code/scripts/build_revision_population_tables.py \
-  --aggregate outputs/population --output outputs/population-tables
-```
-
-The report directory must be absent or empty. The first command reads the prepared
-event catalogues, exposure and task masks and writes source/partition/horizon
-aggregates:
-
-| Output | Meaning |
+| Module | Output and scope |
 | --- | --- |
-| `input-counts.csv` | Participants and base-evaluable, observed-anchor and excluded interpolated-anchor decision counts by source and partition. |
-| `endpoint-counts.csv` | Base participants, event-positive participants, distinct base events, calendar days, observation minutes and equivalent 24-hour exposure at each horizon. |
-| `training-window-counts.csv` | Windows retained by the level 2 supervision mask and their positive/negative labels before neural training subsampling. |
-| `population-summary.json` | Definitions, partition totals, endpoint totals and reporting coverage. Totals sum sources rather than averaging their sensitivities. |
+| `revision_analysis` | Six-cut, two-horizon fixed-frame replay and the five-seed paired primary contrast. |
+| `revision_source_influence` | Descriptive source interactions, delete-one-source reaggregation, named weighting schemes and joint fixed-match coverage. |
+| `revision_round2_sensitivity_runner` | Observed-only and elapsed-span catalogue comparisons with their own event denominators and completeness frames. |
+| `revision_holdout_summary` | The fixed fold-0 two-method holdout summary without a generalization interval. |
+| `revision_external` | Saved-model evaluation using development-fixed policies without external fitting. |
+| `revision_external_inference` | Native paired inference with shared resamples across methods, cuts, horizons and seeds. |
 
-Positive windows can precede the same event and are not distinct event counts.
-Calendar days and observation-minutes divided by 1,440 are separate exposure
-quantities. The report retains participants without events and preserves the
-prepared event catalogue and exposure across current-glucose eligibility rules.
-It exports no participant identifiers, timestamps or raw CGM values.
+Loop primary inference retains correlated-record groups and the original record-level
+point weights. Excluding both verified overlapping records is a separately named
+sensitivity analysis. External cohorts were previously examined. Their results are
+conditional validation. Nominal calibration burden does not imply equal achieved burden.
+Undefined source terms remain undefined, including the full eleven-source observed-only
+sensitivity. Model seeds describe optimization variation rather than independent participants.
 
-Keep the complete prepared bundle, including its participant-timeline manifest.
-Without that manifest the first command omits the training-window report. The
-second command requires complete timeline counts for all eleven development
-sources and all three partitions. It writes `tab_cgm_cohort.tex`, `tab_split.tex`
-and `tab_endpoint_population.tex`, together with `cohort-figure-counts.json`.
-The JSON supplies per-source participant/calendar-day counts and separate 30- and
-60-minute event counts for figure construction; its `severe_hypo_events` field
-contains the 60-minute base count. These are aggregate input counts, not fitted
-model performance or rendered figures. The generated tables describe the study's
-fixed development population, excluding external cohorts.
+These interfaces require reader-prepared scientific inputs and their complete local
+bindings. The archive does not by itself reproduce the private-data training runs.
+Synthetic examples test software behavior and do not establish scientific performance.
 
-`revision_analysis` evaluates the fixed event/exposure population across glucose
-cuts, with both calibration refitting and a frozen-threshold gate-only analysis.
-Its primary contrast requires the complete five-seed LSTM set and one shared
-persistence fit. `revision_composition` fits right-continuous calibration ECDFs
-for the fixed LSTM–persistence pair and averages their ranks. The combined score
-is not an event probability. `revision_event_sensitivity` changes only event
-definitions while preserving emitted alarm sequences and base exposure.
+## Recreate the result figures
 
-`revision_external` and `revision_external_composition` require a development-fixed
-recipe and source-access bindings. They apply the saved models, score mappings
-and alarm policies without external fitting. The external cohorts were previously
-examined, so these results provide conditional validation. The ledger-only
-`revision_external_inference` uses shared participant resampling across horizons
-and model seeds; it does not read model predictions. These modules document their
-configuration schemas in their module docstrings and expose `--help`.
-
-The older entry points under `code/scripts/` implement additional analyses with
-their own input and endpoint definitions. They are not interchangeable with the
-fixed-frame workflow. Preserve exact decision keys, calibration roles, event
-denominators and alarm policies for every comparison.
-
-`manu/figures/make_fig_*.py` reads aggregate analysis outputs and writes PDF figures.
-`code/scripts/figures/` contains their plotting helpers and table builders. Each
-entry point documents its input arguments with `--help`. The inputs under
-`manu/sections/` and `manu/supplement.tex` contain only figure environments and
-their captions, which are used to calculate plot geometry. The study's generated analysis
-outputs are not bundled, so reproducing a result figure first requires generating
-the corresponding analysis inputs from licensed data. Figure 1's editable native
-PowerPoint is distributed in the manuscript handoff's editable-figure folder.
-
-Install the plotting dependency before using those builders:
+Install `requirements-figures.txt` in the same environment. Extract the companion
+Supplementary Data separately and run from this software directory:
 
 ```bash
-.venv/bin/pip install -r requirements-figures.txt
+python manu/figures/build_reduced_figures.py --plot-inputs /path/to/supplementary-data/data/plot-inputs --output-dir /path/to/new-figures
 ```
 
-The experiment records do not establish an exact plotting-library version; this
-additional requirement is a compatibility range rather than a claimed recorded pin.
-The gradient-boosting comparator used XGBoost 3.2.0. Its optional `baselines`
-extra pins that version in `code/pyproject.toml`; the comparator raises an error
-when XGBoost is unavailable. Install it before running that arm:
+The command recreates Figures 3–8 and Supplementary Figures 1–5 using the original
+rendering functions and supplied aggregate arrays, including native intervals and
+explicitly undefined values. It writes PDF figures and plotted values into a new
+directory. It performs no fitting, event matching or resampling. Historical score
+composition is outside this manuscript's display workflow.
 
-```bash
-.venv/bin/pip install xgboost==3.2.0
-```
-
-The supplied synthetic suite does not establish reproduction of the real-data arm.
+Figure 1 is supplied as editable PowerPoint in the figure-source handoff. Figure 2's
+Python source and aggregate cohort counts are included. Its individual illustrative
+traces are not redistributed, so recreating that entire figure requires licensed
+source data and the documented trace-extraction procedure. The supplied PDF remains
+the manuscript's figure. Aggregate cohort profiles alone cannot recreate its trace panels.
 
 ## Licence and citation
 
-The software uses the MIT licence. This licence does not relicense the source cohorts.
-Use `CITATION.cff` for the software citation and cite the paper and original datasets
-when reporting derived results. The source repository is
-https://github.com/gxCaesar/cgm-hypoglycaemia-warning.
-
-The accompanying manuscript is by Delong Yang, Nan Li, Yu Fu, Yideng Jiang and
-Guanxing Chen. The manuscript is entitled Glucose eligibility shapes comparisons of hypoglycaemia warning models across cohorts. Software
-implementation and computational analysis are attributed to Guanxing Chen; the
-paper provides the full author contributions.
-
-## Funding
-
-This work was supported by the National Science and Technology Major Project of the
-Ministry of Science and Technology of China (No. 2024ZD0531200) and the National
-Natural Science Foundation of China (Nos. 82302842 and 82560451).
-
-## Recreate the supplied result figures
-
-Extract the companion Supplementary Data archive separately. Its
-`data/plot-inputs/` directory contains numerical inputs for the original rendering
-functions, including reported intervals and explicitly undefined quantities.
-These inputs contain no participant records or private acceptance documents.
-With the plotting requirements installed, run from the extracted software root:
-
-```bash
-python3 manu/figures/build_corrected_figures.py --plot-inputs /path/to/supplementary-data/data/plot-inputs --output-dir /path/to/new-figure-directory
-```
-
-This recreates Figures 3-8 and Supplementary Figures 1-4 with the supplied geometry.
-Figures 1 and 2 retain their supplied source/export route. The output directory
-must be new. Rendering does not refit a model, rematch events, recompute intervals
-or establish independent real-data reproduction.
+The software uses the MIT licence. Aggregate Supplementary Data uses CC BY 4.0.
+Neither licence changes the source cohorts' terms. Use `CITATION.cff`, the associated
+paper and the original dataset citations when reporting derived results. The source
+repository is https://github.com/gxCaesar/cgm-hypoglycaemia-warning.

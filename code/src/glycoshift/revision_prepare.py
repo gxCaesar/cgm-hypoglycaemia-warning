@@ -131,7 +131,12 @@ def _validate_legacy_binding(
 
 
 def prepare_replays(
-    normalized_path: Path, legacy_windows: Path, output: Path, config: dict
+    normalized_path: Path,
+    legacy_windows: Path,
+    output: Path,
+    config: dict,
+    *,
+    retain_all_tails: bool = False,
 ) -> dict:
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"refusing to overwrite replay output: {output}")
@@ -175,7 +180,7 @@ def prepare_replays(
             # supervision there and therefore stores base rows only.
             stored = (
                 timeline.loc[timeline.base_evaluable]
-                if partition == "train"
+                if partition == "train" and not retain_all_tails
                 else timeline
             )
             shard = (
@@ -193,6 +198,13 @@ def prepare_replays(
                     "partition": partition,
                     "timeline_path": str(shard),
                     "stored_rows": len(stored),
+                    "endpoint_rows": {
+                        str(horizon): {
+                            "events": len(replay.events[horizon]),
+                            "exposure": len(replay.exposure[horizon]),
+                        }
+                        for horizon in (30, 60)
+                    },
                     "normalized_paths": [str(f.path) for f in norm_fragments],
                     "legacy_paths": [str(f.path) for f in old_fragments],
                 }
@@ -200,7 +212,7 @@ def prepare_replays(
             for horizon in (30, 60):
                 event_tables[(partition, horizon)].append(replay.events[horizon])
                 exposure_tables[(partition, horizon)].append(replay.exposure[horizon])
-                base_times = timeline.loc[timeline.base_evaluable]
+                base_times = timeline.loc[timeline[f"base_evaluable_{horizon}"]]
                 base_onsets = replay.events[horizon].event_onset
                 for cut in CUTS:
                     eligible = base_times.loc[base_times.cgm_last >= cut]
@@ -271,7 +283,11 @@ def prepare_replays(
         )
         summary = {
             "revision_contract": "2026-11-04-fixed-frame",
+            "ascertainment_contract": config["protocol"].get("ascertainment_contract"),
             "status": "passed",
+            "timeline_storage": (
+                "full_online" if retain_all_tails else "original_partitions"
+            ),
             "normalized_path": str(normalized_path),
             "legacy_windows": str(legacy_windows),
             "source_order": sorted(sources),

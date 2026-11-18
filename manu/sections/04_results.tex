@@ -26,11 +26,11 @@ The empty carbohydrate lane indicates no recorded values. Action lanes use recor
 \includegraphics{figures/fig_landscape.pdf}
 \caption{Event warning performance under the base eligibility rule.
 All six arms use the same selection participants, base events and exposure, with thresholds fitted on calibration data at a nominal 0.5 unmatched alarms per participant-calendar day.
-\textbf{a}, Sensitivity averaged equally over sources and the two horizons. Each source averages event-positive participants. Small points show the five individual LSTM or TCN fits, with their means shown by larger markers. Each classical arm has one fit or deterministic rule.
+\textbf{a}, Sensitivity averaged equally over sources and the two horizons. Each source averages event-positive participants. Small points show the five individual long short-term memory (LSTM) or temporal convolutional network (TCN) fits, with their means shown by larger markers. Each classical arm has one fit or deterministic rule.
 \textbf{b}, Achieved unmatched-alarm burden, including participants without events. The dotted line marks the nominal calibration budget.
 \textbf{c}, Sensitivity at 30 and 60 minutes.
 \textbf{d}, Alarm positive predictive value (PPV), calculated as one-to-one matched alarms divided by evaluable delivered alarms within each condition, then averaged over horizons and model seeds where applicable.
-\textbf{e}, Source-specific sensitivity, averaged over horizons and model seeds. Labels give the number of event-positive participants, which is identical at both horizons.
+\textbf{e}, Source-specific sensitivity, averaged over horizons and model seeds. Labels give event-positive participant counts at 30 and 60 minutes, respectively.
 \textbf{f}, Fraction of base events detected with at least 5, 10, 15 or 20 minutes of warning, pooled over events within each condition and then averaged over horizons and model seeds.
 Model-seed variation describes optimisation on one fixed split, not participant sampling uncertainty.}
 \label{fig:landscape}
@@ -41,9 +41,9 @@ Model-seed variation describes optimisation on one fixed split, not participant 
 \includegraphics{figures/fig_eligibility.pdf}
 \caption{Glucose eligibility changes the fixed LSTM-versus-current-glucose comparison.
 The base event catalogues and exposure denominators are held fixed across all cuts.
-\textbf{a}, \textbf{b}, Equal-source, equal-horizon sensitivity and achieved unmatched-alarm burden with thresholds refitted on calibration data at each eligibility cut. LSTM curves average five fits.
+\textbf{a}, \textbf{b}, Equal-source, equal-horizon sensitivity and achieved unmatched-alarm burden with thresholds refitted on calibration data at each eligibility cut. Long short-term memory (LSTM) curves average five fits.
 \textbf{c}, Fraction of base events retaining an evaluable decision within the permitted glucose range at each horizon.
-\textbf{d}, Proportion of base evaluable decisions that remain eligible at each cut, which is shared by the two horizons.
+\textbf{d}, Proportion of base evaluable decisions that remain eligible at each cut, shown separately for the two horizons.
 \textbf{e}, \textbf{f}, LSTM-minus-control contrasts at 54 and 70~mg/dL, and the change between those contrasts, for sensitivity and alarm burden. Points are estimates and bars are 95\% percentile confidence intervals from 1{,}000 shared, source-stratified participant bootstrap samples. Sensitivity includes event-positive participants, stratified by horizon-specific positivity pattern. Burden includes all base participants. Horizons and model fits are averaged within each sample, not treated as independent participants.
 \textbf{g}, \textbf{h}, Source-specific sensitivity contrasts at 54 and 70~mg/dL, plotted on the same horizontal scale with event-positive participant counts shown in the row labels.
 \textbf{i}, \textbf{j}, Calibration-refitted and gate-only sensitivity for LSTM and the current-glucose control. Gate-only policies retain the base calibration threshold.
@@ -60,7 +60,7 @@ All panels use the fixed selection population and a nominal calibration budget o
 \textbf{c}, \textbf{d}, Mean and median lead times among matched events, shown separately for each horizon. Filled and open markers distinguish the two statistics.
 \textbf{e}, \textbf{f}, Median glucose at matched and unmatched evaluable alarms, using filled and open markers, respectively.
 \textbf{g}, \textbf{h}, All emitted alarms after refractory suppression, partitioned into matched, unmatched and unevaluable emissions. Unevaluable emissions are reported separately rather than classified as unmatched alarms.
-Large marks and bars average the per-fit quantities over the five LSTM or TCN seeds. Small marks retain the individual neural fits. Each classical arm contributes one fit or deterministic rule. Averages of per-fit medians are not medians of a pooled distribution. Lead times condition on detection, whereas event coverage retains missed events in its denominator.}
+Large marks and bars average the per-fit quantities over the five long short-term memory (LSTM) or temporal convolutional network (TCN) seeds. Small marks retain the individual neural fits. Each classical arm contributes one fit or deterministic rule. Averages of per-fit medians are not medians of a pooled distribution. Lead times condition on detection, whereas event coverage retains missed events in its denominator.}
 \label{fig:mechanism}
 \end{figure}
 
@@ -74,7 +74,7 @@ Large marks and bars average the per-fit quantities over the five LSTM or TCN se
 \textbf{d}, Brier score for level 2 window labels.
 \textbf{e}, Expected calibration error (ECE).
 \textbf{f}, Continuous-glucose forecast mean absolute error (MAE).
-Filled and open markers denote the 30-minute and 60-minute horizons. Large markers average the five LSTM or TCN fits, with smaller marks showing individual seeds. Each classical arm contributes one fit or deterministic rule. Probability diagnostics use 5{,}872{,}995 retained labelled windows per horizon and temperatures fitted only on calibration participants. Forecast errors use 5{,}900{,}011 windows per horizon. Logistic regression and XGBoost do not produce continuous forecasts and are absent from those panels. Probability errors and discrimination concern window outcomes, not event matching or alarm burden. All glucose errors are in mg/dL.}
+Filled and open markers denote the 30-minute and 60-minute horizons. Large markers average the five long short-term memory (LSTM) or temporal convolutional network (TCN) fits, with smaller marks showing individual seeds. Each classical arm contributes one fit or deterministic rule. Probability diagnostics use 5{,}872{,}995 and 5{,}855{,}225 retained labelled windows at 30 and 60 minutes, respectively, and temperatures fitted only on calibration participants. Forecast errors use 5{,}900{,}011 windows per horizon. Logistic regression and XGBoost do not produce continuous forecasts and are absent from those panels. Probability errors and discrimination concern window outcomes, not event matching or alarm burden. All glucose errors are in mg/dL.}
 \label{fig:calibration_diagnosis}
 \end{figure}
 
@@ -82,19 +82,22 @@ Filled and open markers denote the 30-minute and 60-minute horizons. Large marke
 \centering
 \includegraphics{figures/fig_event_sensitivity.pdf}
 \caption{Outcome-definition sensitivity under unchanged emitted alarm sequences.
-\textbf{a}, Base-event counts at 30 minutes, separating onsets shared with the primary catalogue from primary-only and variant-only onsets.
+\textbf{a}, Base-event counts at 30 minutes within each definition and source set.
 \textbf{b}, Corresponding counts at 60 minutes.
 \textbf{c}, LSTM-minus-current-glucose sensitivity differences at 30 minutes.
 \textbf{d}, Corresponding differences at 60 minutes.
 \textbf{e}, Unmatched-alarm-burden differences at 30 minutes.
 \textbf{f}, Corresponding differences at 60 minutes.
-The observed-only definition excludes interpolated, unobserved and censored readings. The strict-boundary definition changes episode merging from at most 30 minutes to less than 30 minutes. Filled and open triangles denote glucose eligibility thresholds of 54 and 70~mg/dL. Small triangles show five LSTM seeds against the shared control, and large triangles show their mean. All definitions retain 153 participants for burden. The primary and strict-boundary catalogues contain 146 event-positive participants, whereas observed-only catalogues contain 144. Shanghai T1DM has no observed-only event, leaving the eleven-source mean sensitivity undefined. Sources are not dropped from that mean. The plots show descriptive seed variation without confidence intervals. All comparisons retain the original alarms, policies, refractory suppression and exposure. Shared-onset counts do not identify one-to-one event shifts or merges.}
+The first comparison retains all eleven sources, whereas the second includes the ten sources with positive events under both definitions at both horizons. Observed-only events exclude interpolated, unobserved and censored readings. Shanghai T1DM has no observed-only event, leaving the eleven-source sensitivity mean undefined. The third comparison uses four low readings to confirm an elapsed-span event and four recovery readings, without additional episode merging. Both catalogues in this comparison use a common 60/75-minute completeness frame for the 30/60-minute horizons. The original frame instead requires completeness through 60/70 minutes. Each definition retains its own participants and onsets within the named source set. Small markers show five LSTM fits against the shared control, and large markers show their mean at glucose cuts of 54 and 70~mg/dL. The plots are descriptive and have no confidence intervals. Previously emitted alarms are rematched without changing model parameters, policies or refractory suppression. Burden includes participants without events and uses each comparison's stated completeness frame. LSTM denotes the long short-term memory network.}
 \label{fig:event_sensitivity}
 \end{figure}
 
 \begin{figure}[!htp]
 \centering
-\includegraphics[width=\textwidth]{figures/fig_composition.pdf}
-\caption{Fixed calibration-rank composition in development and conditional external evaluation. \textbf{a,b}, Sensitivity and achieved unmatched-alarm burden at 30 and 60 minutes on the development selection partition. Small points show the five long short-term memory (LSTM) fits or compositions and large points show their means, with a shared current-glucose control. \textbf{c,d}, Composition-minus-member sensitivity differences in each development source at 30 and 60 minutes. Labels give event-positive and total participant counts, and marker area increases with the square root of the event-positive count. Small and large marks denote seed-specific differences and their mean. \textbf{e}, Step empirical cumulative distribution function (ECDF) versus interpolated-rank comparisons. Each cell gives threshold-crossing disagreements, step-only/interpolation-only emitted alarms, changed matched-alarm identities and changed event detections. \textbf{f,g}, External paired sensitivity and unmatched-alarm-burden differences, averaged over horizons and five model seeds. Bars indicate 95\% percentile intervals from 1,000 shared participant bootstrap draws. Loop includes 843 participants, of whom 827 have events, and HUPA-UCM includes 25 participants, of whom 22 have events. Sensitivity uses event-positive participants, whereas burden uses all retained participants. Development seed variation is descriptive and does not estimate participant uncertainty. All policies use a nominal calibration budget of 0.5 unmatched alarms per participant-calendar day. The external cohorts were previously examined, and no model or policy was fitted to their outcomes. A common nominal budget does not imply equal achieved burden.}
-\label{fig:composition}
+\includegraphics{figures/fig_external.pdf}
+\caption{Frozen-policy evaluation in previously examined external cohorts.
+\textbf{a}, \textbf{b}, Participant-macro fixed sensitivity and \textbf{c}, \textbf{d}, achieved unmatched alarms per participant-calendar day at 30 and 60 minutes and glucose cuts of 54 and 70~mg/dL. Large points and whiskers show estimates and 95\% paired percentile confidence intervals. Long short-term memory (LSTM) estimates average five training seeds, while the current-glucose control uses one shared fit. Header counts give participants ($N$), event-positive participants ($n_+$), base events ($E$) and Loop resampling groups ($G$) for each horizon.
+\textbf{e}, \textbf{f}, Paired LSTM-minus-control sensitivity contrasts at each cut and their 70-minus-54 change, in percentage points, for each horizon and their equal mean. Loop diamonds exclude both verified partially overlapping records without refitting. Each analysis uses its own confidence intervals. The Loop primary analysis resamples correlated-record groups, while the pair-exclusion and HUPA-UCM analyses resample participants. All intervals use 1,000 paired draws, with training seeds averaged within each draw.
+\textbf{g}, \textbf{h}, Descriptive joint coverage requiring glucose of at least 70~mg/dL at the original matched alarm and at least 10, 15 or 20 minutes of lead time. Each cell is a participant-macro fraction of the fixed base events, averaged over the five fits for LSTM. Undetected events remain in the denominator and matching is unchanged. Coverage cells have no confidence intervals. All policies were fitted on development calibration data at a nominal budget of 0.5 unmatched alarms per participant-calendar day.}
+\label{fig:external}
 \end{figure}

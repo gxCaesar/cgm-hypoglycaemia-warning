@@ -22,7 +22,7 @@ from .fixed_frame_evaluation import (
 )
 from .io import write_json
 from .metrics import probability_metrics, regression_metrics
-from .revision_inputs import ReplayInputs
+from .revision_inputs import ReplayInputs, validate_confirmation_masks
 from .sequences import REGRESSION_HORIZONS, REVISION_CONTRACT, TASKS
 from .target_alignment import severe_source_logit_column
 
@@ -141,6 +141,7 @@ class RevisionTrainingContext:
         *,
         source_order: tuple[str, ...],
         output_dir: str | Path | None = None,
+        sensitivity_source_policy: str = "all_sources",
     ) -> None:
         if not source_order or len(set(source_order)) != len(source_order):
             raise ValueError("source_order must contain unique sources")
@@ -153,6 +154,9 @@ class RevisionTrainingContext:
                 "revision context cannot contain external or locked partitions"
             )
         self._source_order = tuple(source_order)
+        if sensitivity_source_policy not in {"all_sources", "supported_sources"}:
+            raise ValueError("unknown sensitivity source policy")
+        self.sensitivity_source_policy = sensitivity_source_policy
         self.output_dir = None if output_dir is None else Path(output_dir)
         truth = {}
         self._bindings: dict[str, pd.DataFrame] = {}
@@ -161,6 +165,9 @@ class RevisionTrainingContext:
         for partition in _PARTITIONS:
             replay = replays[partition]
             timeline = replay.timeline
+            validate_confirmation_masks(
+                timeline, replay.audit.get("ascertainment_contract")
+            )
             if (
                 timeline.empty
                 or "partition" not in timeline
@@ -345,6 +352,7 @@ class RevisionTrainingContext:
                 ),
                 glucose_cut=54,
                 candidate_count=candidate_count,
+                sensitivity_source_policy=self.sensitivity_source_policy,
             )
             curves[str(horizon)] = curve
             scores.append(
@@ -466,6 +474,7 @@ class RevisionTrainingContext:
                 glucose_cut=54,
                 candidate_count=candidate_count,
                 include_raw_points=True,
+                sensitivity_source_policy=self.sensitivity_source_policy,
             )
             policies, thresholds = {}, {}
             by_threshold = {}
@@ -494,11 +503,16 @@ class RevisionTrainingContext:
                 sensitivity = summary[
                     "equal_source_participant_macro_fixed_sensitivity"
                 ]
+                objective_sources = curve["sensitivity_objective_source_order"]
+                objective_sensitivity = float(
+                    evaluated.sources.set_index("source_id")
+                    .loc[objective_sources, "fixed_sensitivity"].mean()
+                )
                 fapd = summary[
                     "equal_source_participant_macro_unmatched_alarms_per_patient_day"
                 ]
                 if not np.allclose(
-                    (sensitivity, fapd),
+                    (objective_sensitivity, fapd),
                     (best["fixed_sensitivity"], best["achieved_fapd"]),
                     rtol=0,
                     atol=1e-12,
@@ -521,6 +535,12 @@ class RevisionTrainingContext:
                     base_event_count=summary["base_event_count"],
                     patient_days=summary["patient_days"],
                     observation_minutes=summary["observation_minutes"],
+                    sensitivity_source_policy=self.sensitivity_source_policy,
+                    sensitivity_objective_source_order=tuple(objective_sources),
+                    excluded_undefined_sensitivity_sources=tuple(
+                        curve["excluded_undefined_sensitivity_sources"]
+                    ),
+                    achieved_objective_fixed_sensitivity=objective_sensitivity,
                 )
                 budget_key = str(budget)
                 policies[budget_key], thresholds[budget_key] = (
